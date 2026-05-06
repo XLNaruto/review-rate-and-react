@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+
+@font-face {
+  font-family: "SF Pro Display";
+  src: url("./assets/fonts/sf-pro-display/SFPRODISPLAYREGULAR.OTF") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sf-pro: "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --color-surface: #f9f9f9;
+  --color-surface-soft: #f1f1f1;
+  --color-product: #1f3d34;
+  --color-success: #0b6b3a;
+  --color-muted: #a0a0a0;
+  --color-muted-dark: #646464;
+  --color-placeholder: #6b7280;
+  --color-border-soft: #e5e5e5;
+  --color-border-mute: #e5e7eb;
+  --color-divider: #e3e3e3;
+
+  --color-react-like: #dde9ff;
+  --color-react-love: #ffe0e0;
+  --color-react-fire: #ffd9b8;
+  --color-react-wow: #e4f2c7;
+  --color-react-haha: #cde6ff;
+  --color-react-angry: #f1daf7;
+}
+
+body {
+  font-family: var(--font-sf-pro);
+}
+
+@layer utilities {
+  .required::after {
+    content: " *";
+    color: #ef4444;
+  }
+
+  .field-label {
+    @apply font-medium text-[15px];
+  }
+
+  .field-input {
+    @apply w-full rounded-full border border-border-soft px-4 py-2.5 text-sm placeholder:text-placeholder outline-none mt-2 transition focus:border-black focus:ring-2 focus:ring-black/10;
+  }
+
+  .field-textarea {
+    @apply w-full rounded-2xl border border-border-soft px-4 py-3 text-sm placeholder:text-placeholder outline-none mt-2 resize-none h-28 transition focus:border-black focus:ring-2 focus:ring-black/10;
+  }
+}
