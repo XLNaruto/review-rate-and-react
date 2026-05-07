@@ -1,28 +1,26 @@
 // App.tsx
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import SkeletonReaction from "./components/SkeletonReaction";
+import ConnectionBanner from "./components/ConnectionBanner";
 
 const { BASE_URL } = import.meta.env;
 
-// Lazy-loaded page components
 const Reaction = lazy(() => import("./pages/reaction/Reaction"));
-
-// Fallback shown while lazy chunks are loading
-function PageLoader() {
-  return (
-    <div style={{ display: "grid", placeItems: "center", height: "100vh" }}>
-      <p>Loading…</p>
-    </div>
-  );
-}
+const Product = lazy(() => import("./pages/product/Product"));
+const Survey = lazy(() => import("./pages/survey/Survey"));
+const NotFound = lazy(() => import("./pages/notfound/NotFound"));
 
 const App = () => {
   return (
     <BrowserRouter basename={BASE_URL}>
-      <Suspense fallback={<PageLoader />}>
+      <ConnectionBanner />
+      <Suspense fallback={<SkeletonReaction />}>
         <Routes>
           <Route path="/" element={<Reaction />} />
-          {/* <Route path="*" element={<NotFound />} /> */}
+          <Route path="/product" element={<Product />} />
+          <Route path="/survey" element={<Survey />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

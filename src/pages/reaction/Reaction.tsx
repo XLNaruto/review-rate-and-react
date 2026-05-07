@@ -11,6 +11,7 @@ const Reaction = () => {
       <div className="sm:w-[370px] mx-auto">
         <ExperienceHeader variant={submitted ? "thanks" : "intro"} />
         <BusinessDetails
+          key={submitted ? "thanks" : "intro"}
           variant="business"
           logo="media/vendor/starbucks.svg"
           name="StarBucks"
@@ -18,7 +19,12 @@ const Reaction = () => {
           about="Starbucks is a global coffeehouse founded in 1971, known for premium coffee, cozy ambiance, and a wide range of beverages."
           website="www.starbucks.in"
         />
-        <FeedbackForm onSubmitted={() => setSubmitted(true)} />
+        <FeedbackForm
+          onSubmitted={() => {
+            setSubmitted(true);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        />
       </div>
     </div>
   );

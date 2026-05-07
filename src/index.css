@@ -14,9 +14,12 @@
 
   --color-surface: #f9f9f9;
   --color-surface-soft: #f1f1f1;
+  --color-chip: #F1F2F4;
   --color-product: #1f3d34;
-  --color-success: #0b6b3a;
-  --color-muted: #a0a0a0;
+  --color-success: #00643C;
+  --color-muted: #A0A0A0;
+  --color-success-soft: #E1FFF5;
+  --color-success-tint: #F3FFFA;
   --color-muted-dark: #646464;
   --color-placeholder: #6b7280;
   --color-border-soft: #e5e5e5;
@@ -29,6 +32,48 @@
   --color-react-wow: #e4f2c7;
   --color-react-haha: #cde6ff;
   --color-react-angry: #f1daf7;
+
+  --color-brand: #6600ff;
+  --color-option-border: #F3F4F6;
+  --color-option-text: #6A7282;
+
+  --animate-fade-in: fade-in 0.35s ease-out both;
+  --animate-fade-in-up: fade-in-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-scale-in: scale-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pop: pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-float-up: float-up 3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+@keyframes float-up {
+  0%   { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -60px); }
 }
 
 body {
@@ -37,8 +82,8 @@ body {
 
 @layer utilities {
   .required::after {
-    content: " *";
-    color: #ef4444;
+    content: "*";
+    color: #FF0000;
   }
 
   .field-label {
@@ -51,5 +96,16 @@ body {
 
   .field-textarea {
     @apply w-full rounded-2xl border border-border-soft px-4 py-3 text-sm placeholder:text-placeholder outline-none mt-2 resize-none h-28 transition focus:border-black focus:ring-2 focus:ring-black/10;
+  }
+
+  .survey-card {
+    background-color: #F9F9F9;
+    @apply rounded-[30px] p-5;
+  }
+
+  .question-card {
+    background-color: #F9FAFB;
+    border: 1px solid #E5E7EB;
+    @apply rounded-[30px] p-5;
   }
 }

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toAbsoluteUrl } from "../utils/Assets";
 import FeedbackSummary from "./FeedbackSummary";
+import SmartImage from "./SmartImage";
 
 const reactions = [
   { gif: "media/reactions/like.gif", alt: "like", bg: "bg-react-like", size: 24 },
@@ -23,6 +24,23 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
   const [email, setEmail] = useState("");
   const [description, setDescription] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [ratingBursts, setRatingBursts] = useState<Record<number, number>>({});
+  const burstIdRef = useRef(0);
+
+  const handleRatingClick = (n: number) => {
+    setSelectedRating(n);
+    burstIdRef.current += 1;
+    const id = burstIdRef.current;
+    setRatingBursts((prev) => ({ ...prev, [n]: id }));
+    window.setTimeout(() => {
+      setRatingBursts((prev) => {
+        if (prev[n] !== id) return prev;
+        const next = { ...prev };
+        delete next[n];
+        return next;
+      });
+    }, 3000);
+  };
 
   const canSubmit = !!selectedReaction && !!selectedRating && email.trim() !== "";
 
@@ -38,9 +56,9 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
   }
 
   return (
-    <div>
+    <div className="animate-fade-in-up [animation-delay:320ms]">
       {!selectedReaction && (
-        <>
+        <div className="animate-fade-in">
           <h1 className="text-[15px] font-medium required mb-3">
             How did this experience feel?
           </h1>
@@ -50,45 +68,79 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
                 key={r.alt}
                 type="button"
                 onClick={() => setSelectedReaction(r.alt)}
-                className={`group relative w-[40px] h-[40px] rounded-full flex items-center justify-center overflow-hidden cursor-pointer ${r.bg}`}
+                className={`group relative w-[40px] h-[40px] rounded-full flex items-center justify-center overflow-hidden cursor-pointer transition-transform duration-200 ease-out hover:scale-125 active:scale-110 ${r.bg}`}
               >
-                <img
+                <SmartImage
                   style={{ width: r.size, height: r.size }}
                   className="object-contain"
+                  wrapperClassName="rounded-full"
                   src={toAbsoluteUrl(r.gif)}
                   alt={r.alt}
                 />
               </button>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {selectedReaction && (
-        <>
+        <div className="animate-fade-in">
           <h1 className="text-[15px] font-medium required mb-3">
             How many points would you give it?
           </h1>
-          <div className="border border-border-mute rounded-[10rem] p-5 flex justify-around items-center mb-5">
+          <div className="relative border border-border-mute rounded-[10rem] p-5 flex justify-around items-center mb-5">
+            {(() => {
+              const r = reactions.find((x) => x.alt === selectedReaction);
+              if (!r) return null;
+              return (
+                <button
+                  type="button"
+                  aria-label="Change reaction"
+                  onClick={() => {
+                    setSelectedReaction(null);
+                    setSelectedRating(null);
+                    setRatingBursts({});
+                  }}
+                  className={`absolute -top-3 -right-3 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden cursor-pointer border-2 border-white shadow-md transition-transform duration-200 ease-out hover:scale-110 active:scale-95 ${r.bg}`}
+                >
+                  <SmartImage
+                    style={{ width: r.size, height: r.size }}
+                    className="object-contain"
+                    wrapperClassName="rounded-full"
+                    src={toAbsoluteUrl(r.gif)}
+                    alt={r.alt}
+                  />
+                </button>
+              );
+            })()}
             {ratings.map((n) => {
               const active = selectedRating === n;
+              const burst = ratingBursts[n];
               return (
                 <button
                   key={n}
                   type="button"
-                  onClick={() => setSelectedRating(n)}
-                  className={`w-[40px] h-[40px] rounded-full flex items-center justify-center text-[15px] font-medium cursor-pointer transition-colors ${
+                  onClick={() => handleRatingClick(n)}
+                  className={`relative w-[40px] h-[40px] rounded-full flex items-center justify-center text-[19px] font-semibold cursor-pointer transition-colors p-[5px] ${
                     active
-                      ? "bg-black text-white"
-                      : "bg-surface-soft text-black hover:bg-border-soft"
+                      ? "bg-brand text-white"
+                      : "bg-surface-soft text-black hover:bg-brand hover:text-white"
                   }`}
                 >
                   {n}
+                  {burst && (
+                    <span
+                      key={burst}
+                      className="pointer-events-none absolute left-1/2 -top-2 text-brand text-[20px] font-bold animate-float-up"
+                    >
+                      +{n}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
-        </>
+        </div>
       )}
 
       <div className="mb-5">
@@ -123,7 +175,7 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
           setSubmitted(true);
           onSubmitted?.();
         }}
-        className="w-full rounded-full bg-black py-5 text-sm font-medium text-white opacity-20 enabled:hover:opacity-100 enabled:opacity-100 transition-opacity duration-300 disabled:cursor-not-allowed"
+        className="w-full rounded-full bg-black py-5 text-sm font-medium text-white opacity-20 enabled:hover:opacity-100 enabled:opacity-100  enabled:active:scale-[0.98] transition-all duration-300 disabled:cursor-not-allowed"
       >
         Submit feedback
       </button>
