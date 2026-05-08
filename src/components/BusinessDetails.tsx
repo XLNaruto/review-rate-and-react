@@ -29,7 +29,7 @@ const BusinessDetails = (props: BusinessDetailsProps) => {
       <div className="mb-5 animate-fade-in-up [animation-delay:80ms]">
         <h5 className="text-center text-muted-dark text-[14px] mb-2">Business</h5>
         <SmartImage
-          wrapperClassName="block mx-auto w-[60px] h-[60px] rounded-full"
+          wrapperClassName="block mx-auto w-[90px] h-[90px] rounded-full"
           className="w-full h-full object-cover rounded-full"
           src={toAbsoluteUrl(props.logo)}
           alt={props.name}
