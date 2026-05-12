@@ -34,7 +34,7 @@ const BusinessDetails = (props: BusinessDetailsProps) => {
           src={toAbsoluteUrl(props.logo)}
           alt={props.name}
         />
-        <h1 className="text-[18px] font-bold text-center mt-2 mb-4">
+        <h1 className="text-[20px] font-bold text-center mt-2 mb-4">
           {props.name}
         </h1>
         <SmartImage
