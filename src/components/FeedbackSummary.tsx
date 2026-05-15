@@ -5,8 +5,9 @@ const reactionMap: Record<string, { gif: string; bg: string; size: number }> = {
   like: { gif: "media/reactions/like.gif", bg: "bg-react-like", size: 25 },
   love: { gif: "media/reactions/love.gif", bg: "bg-react-love", size: 30 },
   fire: { gif: "media/reactions/fire.gif", bg: "bg-react-fire", size: 32 },
-  wow: { gif: "media/reactions/wow.gif", bg: "bg-react-wow", size: 34 },
+  sad: { gif: "media/reactions/sad.gif", bg: "bg-react-sad", size: 32 },
   haha: { gif: "media/reactions/haha.gif", bg: "bg-react-haha", size: 34 },
+  wow: { gif: "media/reactions/wow.gif", bg: "bg-react-wow", size: 34 },
   angry: { gif: "media/reactions/angry.gif", bg: "bg-react-angry", size: 34 },
 };
 

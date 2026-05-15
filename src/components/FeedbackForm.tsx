@@ -7,8 +7,9 @@ const reactions = [
   { gif: "media/reactions/like.gif", alt: "like", bg: "bg-react-like", size: 24 },
   { gif: "media/reactions/love.gif", alt: "love", bg: "bg-react-love", size: 28 },
   { gif: "media/reactions/fire.gif", alt: "fire", bg: "bg-react-fire", size: 30 },
-  { gif: "media/reactions/wow.gif", alt: "wow", bg: "bg-react-wow", size: 32 },
+  { gif: "media/reactions/sad.gif", alt: "sad", bg: "bg-react-sad", size: 30 },
   { gif: "media/reactions/haha.gif", alt: "haha", bg: "bg-react-haha", size: 32 },
+  { gif: "media/reactions/wow.gif", alt: "wow", bg: "bg-react-wow", size: 32 },
   { gif: "media/reactions/angry.gif", alt: "angry", bg: "bg-react-angry", size: 32 },
 ];
 
@@ -60,9 +61,9 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
       {!selectedReaction && (
         <div className="animate-fade-in">
           <h1 className="text-[15px] font-medium required mb-3">
-            How did this experience feel?
+            How would you rate your business experience?
           </h1>
-          <div className="border border-border-mute rounded-[10rem] p-5 flex justify-center items-center gap-[10px] mb-5">
+          <div className="border border-border-mute rounded-[10rem] p-2 sm:p-5 flex justify-center items-center gap-1.5 sm:gap-2.5 mb-5">
             {reactions.map((r) => (
               <button
                 key={r.alt}

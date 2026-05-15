@@ -26,12 +26,13 @@
   --color-border-mute: #e5e7eb;
   --color-divider: #e3e3e3;
 
-  --color-react-like: #dde9ff;
-  --color-react-love: #ffe0e0;
-  --color-react-fire: #ffd9b8;
-  --color-react-wow: #e4f2c7;
-  --color-react-haha: #cde6ff;
-  --color-react-angry: #f1daf7;
+  --color-react-like: #E1EBFF;
+  --color-react-love: #FFE1E2;
+  --color-react-fire: #FFBF97;
+  --color-react-sad: #E0FFA1;
+  --color-react-wow: #CAFFE4;
+  --color-react-haha: #CBE1FF;
+  --color-react-angry: #F5DBFF;
 
   --color-brand: #6600ff;
   --color-option-border: #F3F4F6;
