@@ -21,6 +21,7 @@
   --color-success-soft: #E1FFF5;
   --color-success-tint: #F3FFFA;
   --color-muted-dark: #646464;
+  --color-footer-text: #778AA9;
   --color-placeholder: #6b7280;
   --color-border-soft: #e5e5e5;
   --color-border-mute: #e5e7eb;
@@ -37,6 +38,7 @@
   --color-brand: #6600ff;
   --color-option-border: #F3F4F6;
   --color-option-text: #6A7282;
+  --color-survey-rate-bg: #E1EBFF;
 
   --animate-fade-in: fade-in 0.35s ease-out both;
   --animate-fade-in-up: fade-in-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { toAbsoluteUrl } from "../utils/Assets";
 import FeedbackSummary from "./FeedbackSummary";
 import SmartImage from "./SmartImage";
@@ -27,6 +27,61 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
   const [submitted, setSubmitted] = useState(false);
   const [ratingBursts, setRatingBursts] = useState<Record<number, number>>({});
   const burstIdRef = useRef(0);
+  const ratingRowRef = useRef<HTMLDivElement>(null);
+  const ratingBtnRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [reactionLeft, setReactionLeft] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartXRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
+
+  const getBtnCenter = (idx: number) => {
+    const btn = ratingBtnRefs.current[idx];
+    const row = ratingRowRef.current;
+    if (!btn || !row) return null;
+    const br = btn.getBoundingClientRect();
+    const rr = row.getBoundingClientRect();
+    return br.left - rr.left + br.width / 2;
+  };
+
+  const nearestRatingFromX = (x: number) => {
+    let best = ratings[0];
+    let bestDist = Infinity;
+    ratings.forEach((n, i) => {
+      const c = getBtnCenter(i);
+      if (c == null) return;
+      const d = Math.abs(c - x);
+      if (d < bestDist) {
+        bestDist = d;
+        best = n;
+      }
+    });
+    return best;
+  };
+
+  useLayoutEffect(() => {
+    if (!selectedReaction) return;
+    const row = ratingRowRef.current;
+    if (!row) return;
+
+    const recompute = () => {
+      if (selectedRating == null) {
+        setReactionLeft(row.getBoundingClientRect().width - 12);
+      } else {
+        const c = getBtnCenter(ratings.indexOf(selectedRating));
+        if (c != null) setReactionLeft(c);
+      }
+    };
+
+    recompute();
+
+    const ro = new ResizeObserver(recompute);
+    ro.observe(row);
+    window.addEventListener("resize", recompute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", recompute);
+    };
+  }, [selectedRating, selectedReaction]);
 
   const handleRatingClick = (n: number) => {
     setSelectedRating(n);
@@ -63,7 +118,7 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
           <h1 className="text-[15px] font-medium required mb-3">
             How would you rate your business experience?
           </h1>
-          <div className="border border-border-mute rounded-[10rem] p-2 sm:p-5 flex justify-center items-center gap-1.5 sm:gap-2.5 mb-5">
+          <div className="border border-border-mute rounded-[10rem] p-5 flex justify-between items-center gap-1.5 sm:gap-2.5 mb-5">
             {reactions.map((r) => (
               <button
                 key={r.alt}
@@ -87,26 +142,88 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
       {selectedReaction && (
         <div className="animate-fade-in">
           <h1 className="text-[15px] font-medium required mb-3">
-            How many points would you give it?
+            How would you rate your business experience?
           </h1>
-          <div className="relative border border-border-mute rounded-[10rem] p-5 flex justify-around items-center mb-5">
+          <div
+            ref={ratingRowRef}
+            className="relative border border-border-mute rounded-[10rem] p-5 flex justify-around items-center mb-5"
+          >
             {(() => {
               const r = reactions.find((x) => x.alt === selectedReaction);
               if (!r) return null;
+              const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+                e.preventDefault();
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                setIsDragging(true);
+                dragStartXRef.current = e.clientX;
+                didDragRef.current = false;
+              };
+              const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+                if (!isDragging) return;
+                const row = ratingRowRef.current;
+                if (!row) return;
+                if (
+                  dragStartXRef.current != null &&
+                  Math.abs(e.clientX - dragStartXRef.current) > 4
+                ) {
+                  didDragRef.current = true;
+                }
+                const rawX = e.clientX - row.getBoundingClientRect().left;
+                const firstC = getBtnCenter(0);
+                const lastC = getBtnCenter(ratings.length - 1);
+                const minX = firstC ?? 0;
+                const maxX = lastC ?? row.getBoundingClientRect().width;
+                const x = Math.max(minX, Math.min(maxX, rawX));
+                setReactionLeft(x);
+                const n = nearestRatingFromX(x);
+                if (n !== selectedRating) handleRatingClick(n);
+              };
+              const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+                if (!isDragging) return;
+                setIsDragging(false);
+                dragStartXRef.current = null;
+                try {
+                  (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                } catch {
+                  /* noop */
+                }
+                if (selectedRating != null) {
+                  const c = getBtnCenter(ratings.indexOf(selectedRating));
+                  if (c != null) setReactionLeft(c);
+                }
+              };
+              const style: React.CSSProperties = {
+                left: reactionLeft ?? undefined,
+                top: 0,
+                transform: "translate(-50%, -50%)",
+                transition: isDragging ? "none" : "left 220ms cubic-bezier(0.22, 1, 0.36, 1)",
+                touchAction: "none",
+              };
               return (
                 <button
                   type="button"
-                  aria-label="Change reaction"
+                  aria-label="Drag to set rating, or tap to change reaction"
                   onClick={() => {
+                    if (didDragRef.current) {
+                      didDragRef.current = false;
+                      return;
+                    }
                     setSelectedReaction(null);
                     setSelectedRating(null);
                     setRatingBursts({});
                   }}
-                  className={`absolute -top-3 -right-3 w-11 h-11 rounded-full flex items-center justify-center overflow-hidden cursor-pointer border-2 border-white shadow-md transition-transform duration-200 ease-out hover:scale-110 active:scale-95 ${r.bg}`}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerUp}
+                  style={style}
+                  className={`absolute w-8 h-8 rounded-full flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing border-2 border-white shadow-md ${r.bg} ${
+                    isDragging ? "scale-110" : ""
+                  } transition-transform duration-150 ease-out`}
                 >
                   <SmartImage
                     style={{ width: r.size, height: r.size }}
-                    className="object-contain"
+                    className="object-contain pointer-events-none"
                     wrapperClassName="rounded-full"
                     src={toAbsoluteUrl(r.gif)}
                     alt={r.alt}
@@ -114,12 +231,15 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
                 </button>
               );
             })()}
-            {ratings.map((n) => {
+            {ratings.map((n, i) => {
               const active = selectedRating === n;
               const burst = ratingBursts[n];
               return (
                 <button
                   key={n}
+                  ref={(el) => {
+                    ratingBtnRefs.current[i] = el;
+                  }}
                   type="button"
                   onClick={() => handleRatingClick(n)}
                   className={`relative w-[40px] h-[40px] rounded-full flex items-center justify-center text-[19px] font-semibold cursor-pointer transition-colors p-[5px] ${

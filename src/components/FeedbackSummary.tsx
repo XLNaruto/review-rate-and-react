@@ -27,7 +27,7 @@ const FeedbackSummary = ({
   const r = reactionMap[reaction];
 
   return (
-    <div className="border border-success bg-success-tint rounded-[30px] p-5 mb-5 animate-scale-in">
+    <div className="border border-success bg-success-tint rounded-[30px] p-5  animate-scale-in">
       <div className="inline-flex items-center border border-success rounded-full px-2 py-1.5 mb-5 animate-pop [animation-delay:200ms]">
         <span
           className={`w-12 h-12 rounded-full flex items-center justify-center overflow-hidden border-2 border-white ${r.bg}`}

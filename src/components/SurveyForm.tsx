@@ -1,19 +1,8 @@
-import { useRef, useState } from "react";
-import { toAbsoluteUrl } from "../utils/Assets";
-import SmartImage from "./SmartImage";
+import { useState } from "react";
+import SurveyReactionRow, { type SurveyRateReactValue } from "./SurveyReactionRow";
 import SurveySummary from "./SurveySummary";
 
-const reactions = [
-  { gif: "media/reactions/like.gif", alt: "like", bg: "bg-react-like", size: 24 },
-  { gif: "media/reactions/love.gif", alt: "love", bg: "bg-react-love", size: 28 },
-  { gif: "media/reactions/fire.gif", alt: "fire", bg: "bg-react-fire", size: 30 },
-  { gif: "media/reactions/sad.gif", alt: "sad", bg: "bg-react-sad", size: 30 },
-  { gif: "media/reactions/haha.gif", alt: "haha", bg: "bg-react-haha", size: 32 },
-  { gif: "media/reactions/wow.gif", alt: "wow", bg: "bg-react-wow", size: 32 },
-  { gif: "media/reactions/angry.gif", alt: "angry", bg: "bg-react-angry", size: 32 },
-];
-
-const ratings = [1, 2, 3, 4, 5];
+const emptyRR: SurveyRateReactValue = { reaction: null, rating: null };
 
 const categoryOptions = ["UI/Design", "Performance", "Features", "Customer Support"];
 
@@ -24,15 +13,20 @@ type SurveyFormProps = {
 const QuestionCard = ({
   index,
   subtitle,
+  required,
   children,
 }: {
   index: number;
   subtitle: string;
+  required?: boolean;
   children: React.ReactNode;
 }) => (
   <div className="question-card mb-4">
     <p className="font-bold text-[14px] mb-2">Question {index}</p>
-    <p className="text-placeholder text-[14px] mb-4">{subtitle}</p>
+    <p className="text-placeholder text-[14px] mb-4">
+      {subtitle}
+      {required && <span className="text-red-500 ml-0.5">*</span>}
+    </p>
     {children}
   </div>
 );
@@ -58,33 +52,18 @@ const Checkbox = ({ checked }: { checked: boolean }) => (
 );
 
 const SurveyForm = ({ onSubmitted }: SurveyFormProps) => {
-  const [reaction, setReaction] = useState<string | null>(null);
-  const [rating, setRating] = useState<number | null>(null);
+  const [questionRR, setQuestionRR] = useState<Record<number, SurveyRateReactValue>>({});
   const [categories, setCategories] = useState<string[]>([]);
   const [textAnswer, setTextAnswer] = useState("");
   const [email, setEmail] = useState("");
   const [description, setDescription] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [ratingBursts, setRatingBursts] = useState<Record<number, number>>({});
-  const burstIdRef = useRef(0);
 
-  const handleRatingClick = (n: number) => {
-    setRating(n);
-    burstIdRef.current += 1;
-    const id = burstIdRef.current;
-    setRatingBursts((prev) => ({ ...prev, [n]: id }));
-    window.setTimeout(() => {
-      setRatingBursts((prev) => {
-        if (prev[n] !== id) return prev;
-        const next = { ...prev };
-        delete next[n];
-        return next;
-      });
-    }, 3000);
-  };
+  const setQ = (i: number, v: SurveyRateReactValue) =>
+    setQuestionRR((prev) => ({ ...prev, [i]: v }));
 
-  const canSubmit =
-    !!reaction && !!rating && categories.length > 0 && email.trim() !== "";
+  const q1 = questionRR[1] ?? emptyRR;
+  const canSubmit = !!q1.reaction && email.trim() !== "";
 
   const toggleCategory = (c: string) => {
     setCategories((prev) =>
@@ -92,11 +71,10 @@ const SurveyForm = ({ onSubmitted }: SurveyFormProps) => {
     );
   };
 
-  if (submitted && reaction && rating) {
+  if (submitted && q1.reaction) {
     return (
       <SurveySummary
-        reaction={reaction}
-        rating={rating}
+        questionRR={questionRR}
         categories={categories}
         textAnswer={textAnswer}
         email={email}
@@ -114,65 +92,13 @@ const SurveyForm = ({ onSubmitted }: SurveyFormProps) => {
       <QuestionCard
         index={1}
         subtitle="How would you rate your overall experience?"
+        required
       >
-        <div className="flex justify-between items-center gap-2">
-          {reactions.map((r) => {
-            const active = reaction === r.alt;
-            return (
-              <button
-                key={r.alt}
-                type="button"
-                onClick={() => setReaction(r.alt)}
-                className={`relative w-[40px] h-[40px] rounded-full flex items-center justify-center overflow-hidden cursor-pointer border-2 border-white transition-all duration-200 ease-out hover:scale-125 active:scale-110 ${r.bg} ${
-                  active ? "ring-2 ring-brand ring-offset-2" : ""
-                }`}
-              >
-                <SmartImage
-                  style={{ width: r.size, height: r.size }}
-                  className="object-contain"
-                  wrapperClassName="rounded-full"
-                  src={toAbsoluteUrl(r.gif)}
-                  alt={r.alt}
-                />
-              </button>
-            );
-          })}
-        </div>
-      </QuestionCard>
-
-      <QuestionCard index={2} subtitle="What would you like to ask?">
-        <div className="flex justify-between items-center">
-          {ratings.map((n) => {
-            const active = rating === n;
-            const burst = ratingBursts[n];
-            return (
-              <button
-                key={n}
-                type="button"
-                onClick={() => handleRatingClick(n)}
-                className={`relative w-[44px] h-[44px] rounded-full flex items-center justify-center text-[18px] font-semibold cursor-pointer border-2 border-white transition-colors ${
-                  active
-                    ? "bg-brand text-white"
-                    : "bg-surface-soft text-black hover:bg-brand hover:text-white"
-                }`}
-              >
-                {n}
-                {burst && (
-                  <span
-                    key={burst}
-                    className="pointer-events-none absolute left-1/2 -top-2 text-brand text-[20px] font-bold animate-float-up"
-                  >
-                    +{n}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        <SurveyReactionRow value={q1} onChange={(v) => setQ(1, v)} />
       </QuestionCard>
 
       <QuestionCard
-        index={3}
+        index={2}
         subtitle="How would you rate your overall experience?"
       >
         <div className="space-y-2.5">
@@ -184,9 +110,7 @@ const SurveyForm = ({ onSubmitted }: SurveyFormProps) => {
                 type="button"
                 onClick={() => toggleCategory(c)}
                 className={`w-full flex items-center justify-between rounded-full bg-white px-4 py-3 cursor-pointer transition-colors ${
-                  checked
-                    ? "text-brand"
-                    : "text-option-text"
+                  checked ? "text-brand" : "text-option-text"
                 } border border-option-border `}
               >
                 <span className="text-[14px] font-medium">{c}</span>
@@ -195,10 +119,19 @@ const SurveyForm = ({ onSubmitted }: SurveyFormProps) => {
             );
           })}
         </div>
+        <div className="mt-4 -mx-5 -mb-5 rounded-b-[30px] bg-survey-rate-bg p-5">
+          <p className="text-[14px] font-bold mb-5 required">
+            How would you rate your experience?
+          </p>
+          <SurveyReactionRow
+            value={questionRR[2] ?? emptyRR}
+            onChange={(v) => setQ(2, v)}
+          />
+        </div>
       </QuestionCard>
 
       <QuestionCard
-        index={4}
+        index={3}
         subtitle="How would you rate your overall experience?"
       >
         <textarea
@@ -207,6 +140,15 @@ const SurveyForm = ({ onSubmitted }: SurveyFormProps) => {
           onChange={(e) => setTextAnswer(e.target.value)}
           className="w-full rounded-2xl bg-white border border-option-border px-4 py-3 text-sm placeholder:text-option-text outline-none resize-none h-24 transition focus:border-black focus:ring-2 focus:ring-black/10"
         />
+        <div className="mt-4 -mx-5 -mb-5 rounded-b-[30px] bg-survey-rate-bg p-5">
+          <p className="text-[14px] font-bold mb-5 required">
+            How would you rate your experience?
+          </p>
+          <SurveyReactionRow
+            value={questionRR[3] ?? emptyRR}
+            onChange={(v) => setQ(3, v)}
+          />
+        </div>
       </QuestionCard>
 
       <div className="mb-5 mt-6">
