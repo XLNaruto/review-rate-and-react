@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const URL = {
-  apiUrl: import.meta.env.VITE_APP_API_URL
+  apiUrl: import.meta.env.VITE_APP_API_TARGET
 };
 
 export const Securitykey = import.meta.env.VITE_APP_ENCRYPT_KEY || '';
