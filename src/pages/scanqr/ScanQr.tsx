@@ -30,17 +30,14 @@ const ScanQr = () => {
 
   useEffect(() => {
     let cancelled = false;
-    if (!slug) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
     (async () => {
       // 1) Instant paint from IndexedDB: if we already cached this QR's page
       //    data and the user's submission, render right away — no skeleton.
+      //    The leading await also keeps every setState below off the effect's
+      //    synchronous path (react-hooks/set-state-in-effect).
       const [cached, saved] = await Promise.all([
-        getQrData(slug),
-        getSubmission(slug),
+        slug ? getQrData(slug) : Promise.resolve(null),
+        slug ? getSubmission(slug) : Promise.resolve(null),
       ]);
       if (cancelled) return;
       if (cached) {
@@ -54,7 +51,7 @@ const ScanQr = () => {
 
       // 2) Revalidate from the network (stale-while-revalidate). On the very
       //    first visit there's no cache, so this is what hides the skeleton.
-      const res = await getScanQr(slug);
+      const res = slug ? await getScanQr(slug) : null;
       if (cancelled) return;
       if (res) {
         setData(res);
