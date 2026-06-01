@@ -105,21 +105,40 @@ const SurveyForm = ({
   const ageRef = useRef<HTMLInputElement>(null);
   const genderRef = useRef<HTMLButtonElement>(null);
   const consentRef = useRef<HTMLDivElement>(null);
-  const [errorField, setErrorField] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const triggerBlink = (key: string) => {
-    setErrorField(null);
-    window.setTimeout(() => setErrorField(key), 10);
-    window.setTimeout(() => setErrorField(null), 1000);
+  const clearError = (key: string) =>
+    setErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+
+  const setAnswer = (id: string, v: any) => {
+    clearError(id);
+    setAnswers((prev) => ({ ...prev, [id]: v }));
   };
 
-  const setAnswer = (id: string, v: any) =>
-    setAnswers((prev) => ({ ...prev, [id]: v }));
-
-  const setRr = (id: string, v: SurveyRateReactValue) =>
+  const setRr = (id: string, v: SurveyRateReactValue) => {
+    // Only clear once the rate is actually complete (both reaction AND rating);
+    // a reaction-only selection is still pending, so keep the error. Clear ONLY
+    // the rate error: for reaction/rating questions that's `id` (the rate is the
+    // answer); for choice/open-text questions it's `${id}:rate`, leaving the
+    // separate answer error (`id`) intact until the text/choice is filled.
+    if (v.reaction && v.rating != null) {
+      const q = sorted.find((x) => x.id === id);
+      if (q && q.type !== "reaction" && q.type !== "rating_1_5") {
+        clearError(`${id}:rate`);
+      } else {
+        clearError(id);
+      }
+    }
     setRrAnswers((prev) => ({ ...prev, [id]: v }));
+  };
 
   const toggleChoice = (id: string, opt: string) => {
+    clearError(id);
     setAnswers((prev) => {
       const cur: string[] = Array.isArray(prev[id]) ? prev[id] : [];
       return {
@@ -127,21 +146,6 @@ const SurveyForm = ({
         [id]: cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt],
       };
     });
-  };
-
-  const isAnswered = (q: SurveyQuestion) => {
-    const rr = rrAnswers[q.id];
-    const rrOk = !!(rr && rr.reaction && rr.rating != null);
-    if (q.type === "multiple_choice") {
-      const a = answers[q.id];
-      return rrOk && Array.isArray(a) && a.length > 0;
-    }
-    if (q.type === "open_text") {
-      const a = answers[q.id];
-      return rrOk && typeof a === "string" && a.trim() !== "";
-    }
-    // reaction, rating_1_5 (and any unknown rate-only type)
-    return rrOk;
   };
 
   const focusEl = (el: HTMLElement | null) => {
@@ -170,48 +174,78 @@ const SurveyForm = ({
     return { type: "reaction", value: rrAnswers[q.id]?.reaction ?? null };
   };
 
-  const handleSubmit = async () => {
+  const validate = () => {
+    const e: Record<string, string> = {};
+
     for (const q of sorted) {
-      if (!isAnswered(q)) {
-        triggerBlink(q.id);
-        focusEl(questionRefs.current[q.id]);
-        return;
+      const rr = rrAnswers[q.id];
+      const rateOk = !!(rr && rr.reaction && rr.rating != null);
+      if (q.type === "multiple_choice") {
+        const a = answers[q.id];
+        if (!(Array.isArray(a) && a.length > 0))
+          e[q.id] = "Please complete this question.";
+        if (!rateOk) e[`${q.id}:rate`] = "Please rate your experience.";
+      } else if (q.type === "open_text") {
+        const a = answers[q.id];
+        if (!(typeof a === "string" && a.trim() !== ""))
+          e[q.id] = "Please complete this question.";
+        if (!rateOk) e[`${q.id}:rate`] = "Please rate your experience.";
+      } else {
+        // reaction / rating_1_5 — the rate row is the answer
+        if (!rateOk) e[q.id] = "Please rate your experience.";
       }
     }
-    if (emailMode === "required" && email.trim() === "") {
-      triggerBlink("email");
-      focusEl(emailRef.current);
-      return;
-    }
-    if (emailMode !== "off" && email.trim() !== "" &&
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      toast.error("Enter a valid email address.");
-      triggerBlink("email");
-      focusEl(emailRef.current);
-      return;
-    }
-    if (ageMode === "required" && age.trim() === "") {
-      triggerBlink("age");
-      focusEl(ageRef.current);
-      return;
-    }
-    if (ageMode !== "off" && age.trim() !== "") {
+
+    if (emailMode === "required" && email.trim() === "")
+      e.email = "Email is required.";
+    else if (
+      emailMode !== "off" &&
+      email.trim() !== "" &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    )
+      e.email = "Enter a valid email address.";
+
+    if (ageMode === "required" && age.trim() === "")
+      e.age = "Age is required.";
+    else if (ageMode !== "off" && age.trim() !== "") {
       const n = Number(age);
-      if (!/^\d+$/.test(age) || !Number.isInteger(n) || n < 1 || n > 120) {
-        toast.error("Enter a valid age.");
-        triggerBlink("age");
-        focusEl(ageRef.current);
-        return;
-      }
+      if (!/^\d+$/.test(age) || !Number.isInteger(n) || n < 1 || n > 120)
+        e.age = "Enter a valid age.";
     }
-    if (genderMode === "required" && gender.trim() === "") {
-      triggerBlink("gender");
-      focusEl(genderRef.current);
-      return;
-    }
-    if (!consent) {
-      triggerBlink("consent");
-      focusEl(consentRef.current);
+
+    if (genderMode === "required" && gender.trim() === "")
+      e.gender = "Gender is required.";
+
+    if (!consent) e.consent = "Please acknowledge and consent to continue.";
+
+    return e;
+  };
+
+  const focusFirstError = (errs: Record<string, string>) => {
+    const refFor = (key: string): HTMLElement | null => {
+      if (key === "email") return emailRef.current;
+      if (key === "age") return ageRef.current;
+      if (key === "gender") return genderRef.current;
+      if (key === "consent") return consentRef.current;
+      const base = key.endsWith(":rate") ? key.slice(0, -5) : key;
+      return questionRefs.current[base] ?? null;
+    };
+    const order = [
+      ...sorted.flatMap((q) => [q.id, `${q.id}:rate`]),
+      "email",
+      "age",
+      "gender",
+      "consent",
+    ];
+    const first = order.find((k) => errs[k]);
+    if (first) focusEl(refFor(first));
+  };
+
+  const handleSubmit = async () => {
+    const errs = validate();
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      focusFirstError(errs);
       return;
     }
 
@@ -284,19 +318,31 @@ const SurveyForm = ({
           ref={(el) => {
             questionRefs.current[q.id] = el;
           }}
-          className={`question-card mb-4 ${errorField === q.id ? "animate-blink-error" : ""}`}
+          className={`question-card mb-4 ${
+            errors[q.id] || errors[`${q.id}:rate`] ? "border border-red-500" : ""
+          }`}
         >
           <p className="font-bold text-[14px] mb-2">Question {idx + 1}</p>
           <p className="text-placeholder text-[14px] mb-4">
             {q.text}
             <span className="text-red-500 ml-0.5">*</span>
           </p>
+          {errors[q.id] &&
+            q.type !== "reaction" &&
+            q.type !== "rating_1_5" && (
+              <p className="-mt-2 mb-4 text-xs text-red-500">{errors[q.id]}</p>
+            )}
 
           {(q.type === "reaction" || q.type === "rating_1_5") && (
-            <SurveyReactionRow
-              value={rrAnswers[q.id] ?? emptyRR}
-              onChange={(v) => setRr(q.id, v)}
-            />
+            <>
+              <SurveyReactionRow
+                value={rrAnswers[q.id] ?? emptyRR}
+                onChange={(v) => setRr(q.id, v)}
+              />
+              {errors[q.id] && (
+                <p className="mt-3 text-xs text-red-500">{errors[q.id]}</p>
+              )}
+            </>
           )}
 
           {q.type === "multiple_choice" && (
@@ -341,6 +387,11 @@ const SurveyForm = ({
                 value={rrAnswers[q.id] ?? emptyRR}
                 onChange={(v) => setRr(q.id, v)}
               />
+              {errors[`${q.id}:rate`] && (
+                <p className="mt-3 text-xs text-red-500">
+                  {errors[`${q.id}:rate`]}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -360,9 +411,15 @@ const SurveyForm = ({
             type="email"
             placeholder="you@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={`field-input ${errorField === "email" ? "animate-blink-error" : ""}`}
+            onChange={(e) => {
+              clearError("email");
+              setEmail(e.target.value);
+            }}
+            className={`field-input ${errors.email ? "border-red-500" : ""}`}
           />
+          {errors.email && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.email}</p>
+          )}
         </div>
       )}
 
@@ -383,11 +440,15 @@ const SurveyForm = ({
             maxLength={3}
             placeholder="e.g. 28"
             value={age}
-            onChange={(e) =>
-              setAge(e.target.value.replace(/\D/g, "").slice(0, 3))
-            }
-            className={`field-input ${errorField === "age" ? "animate-blink-error" : ""}`}
+            onChange={(e) => {
+              clearError("age");
+              setAge(e.target.value.replace(/\D/g, "").slice(0, 3));
+            }}
+            className={`field-input ${errors.age ? "border-red-500" : ""}`}
           />
+          {errors.age && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.age}</p>
+          )}
         </div>
       )}
 
@@ -403,11 +464,17 @@ const SurveyForm = ({
             ref={genderRef}
             id="survey-gender"
             value={gender}
-            onChange={setGender}
+            onChange={(v) => {
+              clearError("gender");
+              setGender(v);
+            }}
             options={GENDER_OPTIONS}
             placeholder="Select your gender"
-            error={errorField === "gender"}
+            error={!!errors.gender}
           />
+          {errors.gender && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.gender}</p>
+          )}
         </div>
       )}
 
@@ -424,26 +491,37 @@ const SurveyForm = ({
         />
       </div>
 
-      <div
-        ref={consentRef}
-        onClick={() => setConsent((v) => !v)}
-        className="mb-5 flex items-start gap-3 cursor-pointer rounded-2xl p-1"
-      >
-        <input
-          id="survey-consent"
-          type="checkbox"
-          checked={consent}
-          onChange={(e) => setConsent(e.target.checked)}
-          onClick={(e) => e.stopPropagation()}
-          className={`mt-0.5 h-5 w-5 shrink-0 accent-black cursor-pointer rounded ${
-            errorField === "consent" ? "animate-blink-error" : ""
-          }`}
-        />
-        <label htmlFor="survey-consent" className="text-[13px] leading-snug text-placeholder cursor-pointer">
-          I acknowledge the sharing of my personal information and consent to its
-          collection, use, and processing for the intended purposes.
-          <span className="text-red-500 ml-0.5">*</span>
-        </label>
+      <div className="mb-5">
+        <div
+          ref={consentRef}
+          onClick={() => {
+            clearError("consent");
+            setConsent((v) => !v);
+          }}
+          className="flex items-start gap-3 cursor-pointer rounded-2xl p-1"
+        >
+          <input
+            id="survey-consent"
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => {
+              clearError("consent");
+              setConsent(e.target.checked);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className={`mt-0.5 h-5 w-5 shrink-0 accent-black cursor-pointer rounded ${
+              errors.consent ? "border border-red-500" : ""
+            }`}
+          />
+          <label htmlFor="survey-consent" className="text-[13px] leading-snug text-placeholder cursor-pointer">
+            I acknowledge the sharing of my personal information and consent to its
+            collection, use, and processing for the intended purposes.
+            <span className="text-red-500 ml-0.5">*</span>
+          </label>
+        </div>
+        {errors.consent && (
+          <p className="mt-1.5 text-xs text-red-500">{errors.consent}</p>
+        )}
       </div>
 
       <button

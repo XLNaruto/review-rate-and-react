@@ -83,13 +83,15 @@ const FeedbackForm = ({
   const genderRef = useRef<HTMLButtonElement>(null);
   const consentRef = useRef<HTMLDivElement>(null);
   const reactionRowRef = useRef<HTMLDivElement>(null);
-  const [errorField, setErrorField] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const triggerBlink = (key: string) => {
-    setErrorField(null);
-    window.setTimeout(() => setErrorField(key), 10);
-    window.setTimeout(() => setErrorField(null), 1000);
-  };
+  const clearError = (key: string) =>
+    setErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   const [ratingBursts, setRatingBursts] = useState<Record<number, number>>({});
   const burstIdRef = useRef(0);
   const ratingRowRef = useRef<HTMLDivElement>(null);
@@ -149,6 +151,7 @@ const FeedbackForm = ({
   }, [selectedRating, selectedReaction]);
 
   const handleRatingClick = (n: number) => {
+    clearError("rating");
     setSelectedRating(n);
     burstIdRef.current += 1;
     const id = burstIdRef.current;
@@ -214,7 +217,6 @@ const FeedbackForm = ({
     } as const;
     const first = order.find((k) => errs[k]);
     if (!first) return;
-    triggerBlink(first);
     const el = refMap[first]?.current as HTMLElement | null;
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -227,11 +229,8 @@ const FeedbackForm = ({
 
   const handleSubmit = async () => {
     const errs = validate();
+    setErrors(errs);
     if (Object.keys(errs).length > 0) {
-      // Toast only the first format-validity error (field filled but invalid),
-      // not the "required" ones — those still surface via blink/scroll.
-      if (errs.email && email.trim()) toast.error(errs.email);
-      else if (errs.age && age.trim()) toast.error(errs.age);
       focusFirstError(errs);
       return;
     }
@@ -289,23 +288,24 @@ const FeedbackForm = ({
   return (
     <div className="animate-fade-in-up [animation-delay:320ms]">
       {!selectedReaction && (
-        <div className="animate-fade-in">
+        <div className="animate-fade-in mb-5">
           <h1 className="text-[15px] font-medium required mb-3">
             How would you rate your business experience?
           </h1>
           <div
             ref={reactionRowRef}
-            className={`border border-border-mute rounded-[10rem] p-5 flex justify-between items-center gap-1.5 sm:gap-2.5 mb-5 ${
-              errorField === "reaction" || errorField === "rating"
-                ? "animate-blink-error"
-                : ""
+            className={`border rounded-[10rem] p-5 flex justify-between items-center gap-1.5 sm:gap-2.5 ${
+              errors.reaction ? "border-red-500" : "border-border-mute"
             }`}
           >
             {reactions.map((r) => (
               <button
                 key={r.alt}
                 type="button"
-                onClick={() => setSelectedReaction(r.alt)}
+                onClick={() => {
+                  clearError("reaction");
+                  setSelectedReaction(r.alt);
+                }}
                 className={`group relative w-[40px] h-[40px] rounded-full flex items-center justify-center overflow-hidden cursor-pointer transition-transform duration-200 ease-out hover:scale-125 active:scale-110 ${r.bg}`}
               >
                 <SmartImage
@@ -318,17 +318,22 @@ const FeedbackForm = ({
               </button>
             ))}
           </div>
+          {errors.reaction && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.reaction}</p>
+          )}
         </div>
       )}
 
       {selectedReaction && (
-        <div className="animate-fade-in">
+        <div className="animate-fade-in mb-5">
           <h1 className="text-[15px] font-medium required mb-3">
             How would you rate your business experience?
           </h1>
           <div
             ref={ratingRowRef}
-            className="relative border border-border-mute rounded-[10rem] p-5 flex justify-around items-center mb-5"
+            className={`relative border rounded-[10rem] p-5 flex justify-around items-center ${
+              errors.rating ? "border-red-500" : "border-border-mute"
+            }`}
           >
             {(() => {
               const r = reactions.find((x) => x.alt === selectedReaction);
@@ -443,6 +448,9 @@ const FeedbackForm = ({
               );
             })}
           </div>
+          {errors.rating && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.rating}</p>
+          )}
         </div>
       )}
 
@@ -460,9 +468,15 @@ const FeedbackForm = ({
             type="email"
             placeholder="you@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={`field-input ${errorField === "email" ? "animate-blink-error" : ""}`}
+            onChange={(e) => {
+              clearError("email");
+              setEmail(e.target.value);
+            }}
+            className={`field-input ${errors.email ? "border-red-500" : ""}`}
           />
+          {errors.email && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.email}</p>
+          )}
         </div>
       )}
 
@@ -483,11 +497,15 @@ const FeedbackForm = ({
             maxLength={3}
             placeholder="e.g. 28"
             value={age}
-            onChange={(e) =>
-              setAge(e.target.value.replace(/\D/g, "").slice(0, 3))
-            }
-            className={`field-input ${errorField === "age" ? "animate-blink-error" : ""}`}
+            onChange={(e) => {
+              clearError("age");
+              setAge(e.target.value.replace(/\D/g, "").slice(0, 3));
+            }}
+            className={`field-input ${errors.age ? "border-red-500" : ""}`}
           />
+          {errors.age && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.age}</p>
+          )}
         </div>
       )}
 
@@ -503,11 +521,17 @@ const FeedbackForm = ({
             ref={genderRef}
             id="gender"
             value={gender}
-            onChange={setGender}
+            onChange={(v) => {
+              clearError("gender");
+              setGender(v);
+            }}
             options={GENDER_OPTIONS}
             placeholder="Select your gender"
-            error={errorField === "gender"}
+            error={!!errors.gender}
           />
+          {errors.gender && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.gender}</p>
+          )}
         </div>
       )}
       <div className="mb-5">
@@ -522,26 +546,37 @@ const FeedbackForm = ({
           className="field-textarea"
         />
       </div>
-      <div
-        ref={consentRef}
-        onClick={() => setConsent((v) => !v)}
-        className="mb-5 flex items-start gap-3 cursor-pointer rounded-2xl p-1"
-      >
-        <input
-          id="consent"
-          type="checkbox"
-          checked={consent}
-          onChange={(e) => setConsent(e.target.checked)}
-          onClick={(e) => e.stopPropagation()}
-          className={`mt-0.5 h-5 w-5 shrink-0 accent-black cursor-pointer rounded ${
-            errorField === "consent" ? "animate-blink-error" : ""
-          }`}
-        />
-        <label htmlFor="consent" className="text-[13px] leading-snug text-placeholder cursor-pointer">
-          I acknowledge the sharing of my personal information and consent to its
-          collection, use, and processing for the intended purposes.
-          <span className="text-red-500 ml-0.5">*</span>
-        </label>
+      <div className="mb-5">
+        <div
+          ref={consentRef}
+          onClick={() => {
+            clearError("consent");
+            setConsent((v) => !v);
+          }}
+          className="flex items-start gap-3 cursor-pointer rounded-2xl p-1"
+        >
+          <input
+            id="consent"
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => {
+              clearError("consent");
+              setConsent(e.target.checked);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className={`mt-0.5 h-5 w-5 shrink-0 accent-black cursor-pointer rounded ${
+              errors.consent ? "border border-red-500" : ""
+            }`}
+          />
+          <label htmlFor="consent" className="text-[13px] leading-snug text-placeholder cursor-pointer">
+            I acknowledge the sharing of my personal information and consent to its
+            collection, use, and processing for the intended purposes.
+            <span className="text-red-500 ml-0.5">*</span>
+          </label>
+        </div>
+        {errors.consent && (
+          <p className="mt-1.5 text-xs text-red-500">{errors.consent}</p>
+        )}
       </div>
       <button
         type="button"
