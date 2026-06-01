@@ -46,6 +46,16 @@
   --animate-pop: pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   --animate-shimmer: shimmer 1.4s linear infinite;
   --animate-float-up: float-up 3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  --animate-blink-error: blink-error 0.9s ease-out both;
+}
+
+@keyframes blink-error {
+  0%, 100% { border-color: inherit; box-shadow: none; }
+  20%, 60% {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  }
+  40%, 80% { border-color: inherit; box-shadow: none; }
 }
 
 @keyframes shimmer {
@@ -99,6 +109,30 @@ body {
 
   .field-textarea {
     @apply w-full rounded-2xl border border-border-soft px-4 py-3 text-sm placeholder:text-placeholder outline-none mt-2 resize-none h-28 transition focus:border-black focus:ring-2 focus:ring-black/10;
+  }
+
+  .nice-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  }
+
+  .nice-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .nice-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 8px 0;
+  }
+
+  .nice-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 9999px;
+  }
+
+  .nice-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.35);
   }
 
   .survey-card {

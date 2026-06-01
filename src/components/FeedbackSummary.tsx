@@ -14,7 +14,9 @@ const reactionMap: Record<string, { gif: string; bg: string; size: number }> = {
 type FeedbackSummaryProps = {
   reaction: string;
   rating: number;
-  email: string;
+  email?: string;
+  age?: string;
+  gender?: string;
   description?: string;
 };
 
@@ -22,6 +24,8 @@ const FeedbackSummary = ({
   reaction,
   rating,
   email,
+  age,
+  gender,
   description,
 }: FeedbackSummaryProps) => {
   const r = reactionMap[reaction];
@@ -45,19 +49,51 @@ const FeedbackSummary = ({
         </span>
       </div>
 
-      <div className="mb-5">
-        <div className="flex items-center gap-2 font-semibold mb-1">
-          <SmartImage
-            wrapperClassName="block w-[18px] h-[18px] shrink-0"
-            className="w-full h-full"
-            src={toAbsoluteUrl("media/icons/mail-at-sign.svg")}
-            alt="email"
-          />
-          Email:
+      {email && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 font-semibold mb-1">
+            <SmartImage
+              wrapperClassName="block w-[18px] h-[18px] shrink-0"
+              className="w-full h-full"
+              src={toAbsoluteUrl("media/icons/mail-at-sign.svg")}
+              alt="email"
+            />
+            Email:
+          </div>
+          <p className="text-[14px] text-muted">{email}</p>
         </div>
-        <p className="text-[14px] text-muted">{email}</p>
-      </div>
+      )}
 
+      {age && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 font-semibold mb-1">
+            <SmartImage
+              wrapperClassName="block w-[18px] h-[18px] shrink-0"
+              className="w-full h-full"
+              src={toAbsoluteUrl("media/icons/age.svg")}
+              alt="age"
+            />
+            Age:
+          </div>
+          <p className="text-[14px] text-muted">{age}</p>
+        </div>
+      )}
+
+      {gender && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 font-semibold mb-1">
+            <SmartImage
+              wrapperClassName="block w-[18px] h-[18px] shrink-0"
+              className="w-full h-full"
+              src={toAbsoluteUrl("media/icons/gender.svg")}
+              alt="gender"
+            />
+            Gender:
+          </div>
+          <p className="text-[14px] text-muted capitalize">{gender}</p>
+        </div>
+      )}
+  
       {description && (
         <div>
           <div className="flex items-center gap-2 font-semibold mb-1">

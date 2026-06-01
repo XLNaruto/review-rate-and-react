@@ -1,7 +1,17 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { toAbsoluteUrl } from "../utils/Assets";
 import FeedbackSummary from "./FeedbackSummary";
 import SmartImage from "./SmartImage";
+import SelectDropdown from "./SelectDropdown";
+import { submitReview } from "../api";
+import { saveSubmission } from "../utils/SubmissionStore";
+
+const GENDER_OPTIONS = [
+  { label: "Male", value: "male" },
+  { label: "Female", value: "female" },
+  { label: "Other", value: "other" },
+];
 
 const reactions = [
   { gif: "media/reactions/like.gif", alt: "like", bg: "bg-react-like", size: 24 },
@@ -15,16 +25,71 @@ const reactions = [
 
 const ratings = [1, 2, 3, 4, 5];
 
-type FeedbackFormProps = {
-  onSubmitted?: () => void;
+type FieldMode = "off" | "optional" | "required";
+
+type UserInfoModes = {
+  email_mode?: FieldMode | string;
+  age_mode?: FieldMode | string;
+  gender_mode?: FieldMode | string;
 };
 
-const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
-  const [selectedReaction, setSelectedReaction] = useState<string | null>(null);
-  const [selectedRating, setSelectedRating] = useState<number | null>(null);
-  const [email, setEmail] = useState("");
-  const [description, setDescription] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+type FeedbackSubmission = {
+  reaction: string | null;
+  rating: number | null;
+  email: string;
+  age: string;
+  gender: string;
+  description: string;
+};
+
+type FeedbackFormProps = {
+  onSubmitted?: () => void;
+  kind: "business_qr" | "product_qr";
+  qrCodeId: string;
+  slug: string;
+  initialSubmission?: FeedbackSubmission | null;
+  userInfoModes?: UserInfoModes;
+};
+
+const FeedbackForm = ({
+  onSubmitted,
+  kind,
+  qrCodeId,
+  slug,
+  initialSubmission,
+  userInfoModes,
+}: FeedbackFormProps) => {
+  const emailMode = (userInfoModes?.email_mode as FieldMode) ?? "required";
+  const ageMode = (userInfoModes?.age_mode as FieldMode) ?? "off";
+  const genderMode = (userInfoModes?.gender_mode as FieldMode) ?? "off";
+
+  const [selectedReaction, setSelectedReaction] = useState<string | null>(
+    initialSubmission?.reaction ?? null
+  );
+  const [selectedRating, setSelectedRating] = useState<number | null>(
+    initialSubmission?.rating ?? null
+  );
+  const [email, setEmail] = useState(initialSubmission?.email ?? "");
+  const [age, setAge] = useState(initialSubmission?.age ?? "");
+  const [gender, setGender] = useState(initialSubmission?.gender ?? "");
+  const [description, setDescription] = useState(
+    initialSubmission?.description ?? ""
+  );
+  const [consent, setConsent] = useState(!!initialSubmission);
+  const [submitted, setSubmitted] = useState(!!initialSubmission);
+  const [submitting, setSubmitting] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const ageRef = useRef<HTMLInputElement>(null);
+  const genderRef = useRef<HTMLButtonElement>(null);
+  const consentRef = useRef<HTMLDivElement>(null);
+  const reactionRowRef = useRef<HTMLDivElement>(null);
+  const [errorField, setErrorField] = useState<string | null>(null);
+
+  const triggerBlink = (key: string) => {
+    setErrorField(null);
+    window.setTimeout(() => setErrorField(key), 10);
+    window.setTimeout(() => setErrorField(null), 1000);
+  };
   const [ratingBursts, setRatingBursts] = useState<Record<number, number>>({});
   const burstIdRef = useRef(0);
   const ratingRowRef = useRef<HTMLDivElement>(null);
@@ -98,14 +163,120 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
     }, 3000);
   };
 
-  const canSubmit = !!selectedReaction && !!selectedRating && email.trim() !== "";
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!selectedReaction) e.reaction = "Please select a reaction.";
+    if (!selectedRating) e.rating = "Please select a rating.";
+
+    if (emailMode !== "off") {
+      const v = email.trim();
+      if (!v && emailMode === "required") e.email = "Email is required.";
+      else if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))
+        e.email = "Enter a valid email address.";
+    }
+
+    if (ageMode !== "off") {
+      const v = age.trim();
+      if (!v && ageMode === "required") e.age = "Age is required.";
+      else if (v) {
+        const n = Number(v);
+        if (!/^\d+$/.test(v) || !Number.isInteger(n) || n < 1 || n > 120)
+          e.age = "Enter a valid age between 1 and 120.";
+      }
+    }
+
+    if (genderMode !== "off") {
+      const v = gender.trim();
+      if (!v && genderMode === "required") e.gender = "Gender is required.";
+    }
+
+    if (!consent) e.consent = "Please acknowledge and consent to continue.";
+
+    return e;
+  };
+
+  const focusFirstError = (errs: Record<string, string>) => {
+    const order: Array<keyof typeof refMap> = [
+      "reaction",
+      "rating",
+      "email",
+      "age",
+      "gender",
+      "consent",
+    ];
+    const refMap = {
+      reaction: reactionRowRef,
+      rating: ratingRowRef,
+      email: emailRef,
+      age: ageRef,
+      gender: genderRef,
+      consent: consentRef,
+    } as const;
+    const first = order.find((k) => errs[k]);
+    if (!first) return;
+    triggerBlink(first);
+    const el = refMap[first]?.current as HTMLElement | null;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      if (typeof (el as HTMLInputElement).focus === "function") {
+        (el as HTMLInputElement).focus({ preventScroll: true });
+      }
+    }, 320);
+  };
+
+  const handleSubmit = async () => {
+    const errs = validate();
+    if (Object.keys(errs).length > 0) {
+      focusFirstError(errs);
+      return;
+    }
+    if (submitting) return;
+
+    setSubmitting(true);
+
+    const trimmedDescription = description.trim();
+    const response: any = await submitReview({
+      kind,
+      qr_code_id: qrCodeId,
+      rating: selectedRating as number,
+      reaction: selectedReaction as string,
+      ...(trimmedDescription ? { description: trimmedDescription } : {}),
+      ...(emailMode !== "off" && email.trim() ? { email: email.trim() } : {}),
+      ...(genderMode !== "off" && gender.trim() ? { gender: gender.trim() } : {}),
+      ...(ageMode !== "off" && age.trim() ? { age: Number(age) } : {}),
+    });
+
+    setSubmitting(false);
+
+    if (!["200", "201"].includes(String(response?.status))) {
+      toast.error(
+        response?.data?.message ?? "Something went wrong. Please try again."
+      );
+      return;
+    }
+
+    await saveSubmission(slug, kind, {
+      reaction: selectedReaction,
+      rating: selectedRating,
+      email,
+      age,
+      gender,
+      description,
+    });
+
+    setSubmitted(true);
+    onSubmitted?.();
+  };
 
   if (submitted && selectedReaction && selectedRating) {
     return (
       <FeedbackSummary
         reaction={selectedReaction}
         rating={selectedRating}
-        email={email}
+        email={emailMode !== "off" ? email : ""}
+        age={ageMode !== "off" ? age : ""}
+        gender={genderMode !== "off" ? gender : ""}
         description={description}
       />
     );
@@ -118,7 +289,14 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
           <h1 className="text-[15px] font-medium required mb-3">
             How would you rate your business experience?
           </h1>
-          <div className="border border-border-mute rounded-[10rem] p-5 flex justify-between items-center gap-1.5 sm:gap-2.5 mb-5">
+          <div
+            ref={reactionRowRef}
+            className={`border border-border-mute rounded-[10rem] p-5 flex justify-between items-center gap-1.5 sm:gap-2.5 mb-5 ${
+              errorField === "reaction" || errorField === "rating"
+                ? "animate-blink-error"
+                : ""
+            }`}
+          >
             {reactions.map((r) => (
               <button
                 key={r.alt}
@@ -264,19 +442,70 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
         </div>
       )}
 
-      <div className="mb-5">
-        <label className="field-label required" htmlFor="email">
-          Enter Your Email
-        </label>
-        <input
-          id="email"
-          type="email"
-          placeholder="you@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="field-input"
-        />
-      </div>
+      {emailMode !== "off" && (
+        <div className="mb-5">
+          <label
+            className={`field-label ${emailMode === "required" ? "required" : ""}`}
+            htmlFor="email"
+          >
+            Enter Your Email
+          </label>
+          <input
+            ref={emailRef}
+            id="email"
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={`field-input ${errorField === "email" ? "animate-blink-error" : ""}`}
+          />
+        </div>
+      )}
+
+      {ageMode !== "off" && (
+        <div className="mb-5">
+          <label
+            className={`field-label ${ageMode === "required" ? "required" : ""}`}
+            htmlFor="age"
+          >
+            Enter Your Age
+          </label>
+          <input
+            ref={ageRef}
+            id="age"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={3}
+            placeholder="e.g. 28"
+            value={age}
+            onChange={(e) =>
+              setAge(e.target.value.replace(/\D/g, "").slice(0, 3))
+            }
+            className={`field-input ${errorField === "age" ? "animate-blink-error" : ""}`}
+          />
+        </div>
+      )}
+
+      {genderMode !== "off" && (
+        <div className="mb-5">
+          <label
+            className={`field-label ${genderMode === "required" ? "required" : ""}`}
+            htmlFor="gender"
+          >
+            Enter Your Gender
+          </label>
+          <SelectDropdown
+            ref={genderRef}
+            id="gender"
+            value={gender}
+            onChange={setGender}
+            options={GENDER_OPTIONS}
+            placeholder="Select your gender"
+            error={errorField === "gender"}
+          />
+        </div>
+      )}
       <div className="mb-5">
         <label className="field-label" htmlFor="description">
           Description
@@ -289,16 +518,34 @@ const FeedbackForm = ({ onSubmitted }: FeedbackFormProps) => {
           className="field-textarea"
         />
       </div>
+      <div
+        ref={consentRef}
+        onClick={() => setConsent((v) => !v)}
+        className="mb-5 flex items-start gap-3 cursor-pointer rounded-2xl p-1"
+      >
+        <input
+          id="consent"
+          type="checkbox"
+          checked={consent}
+          onChange={(e) => setConsent(e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+          className={`mt-0.5 h-5 w-5 shrink-0 accent-black cursor-pointer rounded ${
+            errorField === "consent" ? "animate-blink-error" : ""
+          }`}
+        />
+        <label htmlFor="consent" className="text-[13px] leading-snug text-placeholder cursor-pointer">
+          I acknowledge the sharing of my personal information and consent to its
+          collection, use, and processing for the intended purposes.
+          <span className="text-red-500 ml-0.5">*</span>
+        </label>
+      </div>
       <button
         type="button"
-        disabled={!canSubmit}
-        onClick={() => {
-          setSubmitted(true);
-          onSubmitted?.();
-        }}
-        className="w-full rounded-full bg-black py-5 text-sm font-medium text-white opacity-20 enabled:hover:opacity-100 enabled:opacity-100  enabled:active:scale-[0.98] transition-all duration-300 disabled:cursor-not-allowed"
+        onClick={handleSubmit}
+        disabled={submitting}
+        className="w-full rounded-full bg-black py-5 text-sm font-medium text-white hover:opacity-90 active:scale-[0.98] transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
       >
-        Submit feedback
+        {submitting ? "Submitting…" : "Submit feedback"}
       </button>
     </div>
   );

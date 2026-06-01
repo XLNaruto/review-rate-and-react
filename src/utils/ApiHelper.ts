@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const URL = {
-  uatgogagnerurl: import.meta.env.VITE_APP_API_URL
+  apiUrl: import.meta.env.VITE_APP_API_URL
 };
 
 export const Securitykey = import.meta.env.VITE_APP_ENCRYPT_KEY || '';
@@ -31,7 +31,7 @@ export const apiHeader = (isFormData: any) => {
 // API CALL for POST method
 export const postData = async (api: any, data: any, headers: any) => {
   try {
-    const url = `${URL.uatgogagnerurl}${api}`;
+    const url = `${URL.apiUrl}${api}`;
 
     const response = await axios.post(url, data, headers);
 
@@ -54,7 +54,7 @@ export const postData = async (api: any, data: any, headers: any) => {
 // API CALL for GET method
 export const getData = async (api: any, params: any, headers: any) => {
   try {
-    const url = `${URL.uatgogagnerurl}${api}`;
+    const url = `${URL.apiUrl}${api}`;
 
     const response = await axios.get(url, {
       params: params,
@@ -79,7 +79,7 @@ export const getData = async (api: any, params: any, headers: any) => {
 // API CALL for PATCH method
 export const patchData = async (api: any, data: any, headers: any) => {
   try {
-    const url = `${URL.uatgogagnerurl}${api}`;
+    const url = `${URL.apiUrl}${api}`;
 
     const response = await axios.patch(url, data, headers);
 
@@ -103,7 +103,7 @@ export const patchData = async (api: any, data: any, headers: any) => {
 // API CALL for PUT method
 export const putData = async (api: any, data: any, headers: any) => {
   try {
-    const url = `${URL.uatgogagnerurl}${api}`;
+    const url = `${URL.apiUrl}${api}`;
 
     const response = await axios.put(url, data, headers);
 
@@ -125,7 +125,7 @@ export const putData = async (api: any, data: any, headers: any) => {
 // API CALL for DELETE method
 export const deleteData = async (api: any, data: any, headers: any) => {
   try {
-    const url = `${URL.uatgogagnerurl}${api}`;
+    const url = `${URL.apiUrl}${api}`;
 
     const response = await axios.delete(url, {
       data,
