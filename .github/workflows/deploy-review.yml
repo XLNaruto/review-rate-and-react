@@ -15,6 +15,26 @@
 #   "user" as the internal key for this app (review submission is the public
 #   user-facing site). The role itself is correctly scoped to the review bucket.
 #
+#   3. App build config (the VITE_* vars). The local .env.development /
+#      .env.production files are gitignored, so CI must supply them. In EACH
+#      Environment add these (Settings -> Environments -> <env>):
+#
+#        Environment VARIABLES (non-secret):
+#          VITE_APP_STAGE          dev: production            prod: production
+#          VITE_APP_BASE_URL       dev: /rateandreactapi/dev/user/   prod: /
+#          VITE_APP_API_URL        dev: /api-proxy/           prod: (empty)
+#          VITE_APP_API_TARGET     dev: https://api.dev.rateandreact.com/   prod: (empty)
+#          VITE_APP_API_TOKEN      dev: (empty)               prod: (empty)
+#
+#        Environment SECRET:
+#          VITE_APP_ENCRYPT_KEY    (the crypto key; same value used in both .env files)
+#
+#      The "Generate .env file" step below writes these into .env.<mode> before
+#      the build so Vite's loadEnv() picks them up exactly like a local build.
+#      NOTE: VITE_* values are compiled into the public JS bundle, so none of
+#      them are truly private — VITE_APP_ENCRYPT_KEY is kept as a secret only to
+#      avoid committing it to the repo, not because it stays hidden at runtime.
+#
 # WHAT IT DOES
 #   - Push to main         -> auto-deploys to dev.
 #   - workflow_dispatch    -> deploys to dev or prod (prod prompts approvers).
@@ -69,6 +89,31 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Generate .env file
+        env:
+          VITE_APP_STAGE: ${{ vars.VITE_APP_STAGE }}
+          VITE_APP_BASE_URL: ${{ vars.VITE_APP_BASE_URL }}
+          VITE_APP_API_URL: ${{ vars.VITE_APP_API_URL }}
+          VITE_APP_API_TARGET: ${{ vars.VITE_APP_API_TARGET }}
+          VITE_APP_API_TOKEN: ${{ vars.VITE_APP_API_TOKEN }}
+          VITE_APP_ENCRYPT_KEY: ${{ secrets.VITE_APP_ENCRYPT_KEY }}
+        run: |
+          set -euo pipefail
+          ENV="${{ github.event.inputs.environment || 'dev' }}"
+          if [ "$ENV" = "prod" ]; then MODE="production"; else MODE="development"; fi
+          # Values come from the GitHub Environment, written via env vars (not
+          # inline interpolation) so secrets stay masked and special characters
+          # survive intact.
+          {
+            echo "VITE_APP_STAGE=${VITE_APP_STAGE}"
+            echo "VITE_APP_BASE_URL=${VITE_APP_BASE_URL}"
+            echo "VITE_APP_ENCRYPT_KEY=${VITE_APP_ENCRYPT_KEY}"
+            echo "VITE_APP_API_URL=${VITE_APP_API_URL}"
+            echo "VITE_APP_API_TARGET=${VITE_APP_API_TARGET}"
+            echo "VITE_APP_API_TOKEN=${VITE_APP_API_TOKEN}"
+          } > ".env.${MODE}"
+          echo "Wrote .env.${MODE} for $ENV (values hidden)."
 
       - name: Build
         run: |
