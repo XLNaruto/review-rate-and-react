@@ -185,6 +185,7 @@ const SurveyForm = ({
     }
     if (emailMode !== "off" && email.trim() !== "" &&
         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      toast.error("Enter a valid email address.");
       triggerBlink("email");
       focusEl(emailRef.current);
       return;
@@ -197,6 +198,7 @@ const SurveyForm = ({
     if (ageMode !== "off" && age.trim() !== "") {
       const n = Number(age);
       if (!/^\d+$/.test(age) || !Number.isInteger(n) || n < 1 || n > 120) {
+        toast.error("Enter a valid age.");
         triggerBlink("age");
         focusEl(ageRef.current);
         return;

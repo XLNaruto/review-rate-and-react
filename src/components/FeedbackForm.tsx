@@ -181,7 +181,7 @@ const FeedbackForm = ({
       else if (v) {
         const n = Number(v);
         if (!/^\d+$/.test(v) || !Number.isInteger(n) || n < 1 || n > 120)
-          e.age = "Enter a valid age between 1 and 120.";
+          e.age = "Enter a valid age.";
       }
     }
 
@@ -228,6 +228,10 @@ const FeedbackForm = ({
   const handleSubmit = async () => {
     const errs = validate();
     if (Object.keys(errs).length > 0) {
+      // Toast only the first format-validity error (field filled but invalid),
+      // not the "required" ones — those still surface via blink/scroll.
+      if (errs.email && email.trim()) toast.error(errs.email);
+      else if (errs.age && age.trim()) toast.error(errs.age);
       focusFirstError(errs);
       return;
     }
