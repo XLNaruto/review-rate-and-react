@@ -29,13 +29,6 @@ const NotFound = () => {
           </div>
         </div>
 
-        <Link
-          to="/"
-          className="inline-flex items-center justify-center w-full rounded-full bg-black py-5 text-sm font-medium text-white transition-all duration-300 active:scale-[0.98] animate-fade-in-up [animation-delay:120ms]"
-        >
-          Back to home
-        </Link>
-
         <p className="text-muted text-[12px] mt-5 animate-fade-in [animation-delay:240ms]">
           If you scanned a QR, try scanning it again.
         </p>
