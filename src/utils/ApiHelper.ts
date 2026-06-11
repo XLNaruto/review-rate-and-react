@@ -1,7 +1,22 @@
 import axios from 'axios';
+import { emitRateLimited } from './RateLimit';
 
 const URL = {
   apiUrl: import.meta.env.VITE_APP_API_URL
+};
+
+// When the API replies 429 (Too Many Requests), signal the app to show the
+// friendly rate-limit page. Returns true so callers can short-circuit.
+const handleRateLimit = (res: any): boolean => {
+  if (String(res?.status) === '429') {
+    // The API sends x-ratelimit-reset = seconds until the limit resets.
+    // Fall back to Retry-After, then to a default handled downstream (60s).
+    const reset =
+      res?.headers?.['x-ratelimit-reset'] ?? res?.headers?.['retry-after'];
+    emitRateLimited(reset);
+    return true;
+  }
+  return false;
 };
 
 export const Securitykey = import.meta.env.VITE_APP_ENCRYPT_KEY || '';
@@ -35,6 +50,7 @@ export const postData = async (api: any, data: any, headers: any) => {
 
     const response = await axios.post(url, data, headers);
 
+    if (handleRateLimit(response)) return response;
     if (['401', '403'].includes(String(response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -43,6 +59,7 @@ export const postData = async (api: any, data: any, headers: any) => {
   } catch (error: any) {
     console.log('error ==============++==+=======+==+', error.message);
     console.log('error ==============++==+=======+==+', error);
+    if (handleRateLimit(error?.response)) return error?.response;
     if (['401', '403'].includes(String(error?.response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -61,6 +78,7 @@ export const getData = async (api: any, params: any, headers: any) => {
       headers: headers['headers']
     });
 
+    if (handleRateLimit(response)) return response;
     if (['401', '403'].includes(String(response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -68,6 +86,7 @@ export const getData = async (api: any, params: any, headers: any) => {
     return response;
   } catch (error: any) {
     console.log('Error:', error.message);
+    if (handleRateLimit(error?.response)) return error?.response;
     if (['401', '403'].includes(String(error?.response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -83,6 +102,7 @@ export const patchData = async (api: any, data: any, headers: any) => {
 
     const response = await axios.patch(url, data, headers);
 
+    if (handleRateLimit(response)) return response;
     if (['401', '403'].includes(String(response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -92,6 +112,7 @@ export const patchData = async (api: any, data: any, headers: any) => {
   } catch (error: any) {
     console.log('Error:', error.message);
     console.log('Error:::::::::::::::::::::::::::::::::', error);
+    if (handleRateLimit(error?.response)) return error?.response;
     if (['401', '403'].includes(String(error?.response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -107,6 +128,7 @@ export const putData = async (api: any, data: any, headers: any) => {
 
     const response = await axios.put(url, data, headers);
 
+    if (handleRateLimit(response)) return response;
     if (['401', '403'].includes(String(response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -114,6 +136,7 @@ export const putData = async (api: any, data: any, headers: any) => {
     return response;
   } catch (error: any) {
     console.log('Error:', error.message);
+    if (handleRateLimit(error?.response)) return error?.response;
     if (['401', '403'].includes(String(error?.response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -132,6 +155,7 @@ export const deleteData = async (api: any, data: any, headers: any) => {
       ...headers
     });
 
+    if (handleRateLimit(response)) return response;
     if (['401', '403'].includes(String(response?.status))) {
       sessionStorage.clear();
       location.reload();
@@ -140,6 +164,7 @@ export const deleteData = async (api: any, data: any, headers: any) => {
   } catch (error: any) {
     console.log('Error:', error.message);
 
+    if (handleRateLimit(error?.response)) return error?.response;
     if (['401', '403'].includes(String(error?.response?.status))) {
       sessionStorage.clear();
       location.reload();

@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import SkeletonReaction from "./components/SkeletonReaction";
 import ConnectionBanner from "./components/ConnectionBanner";
+import RateLimitGate from "./components/RateLimitGate";
 import Footer from "./components/Footer";
 
 const { BASE_URL } = import.meta.env;
@@ -16,6 +17,7 @@ const App = () => {
     <BrowserRouter basename={BASE_URL}>
       <Toaster position="top-center" richColors />
       <ConnectionBanner />
+      <RateLimitGate />
       <div className="min-h-dvh flex flex-col">
         <Suspense fallback={<SkeletonReaction />}>
           <main className="flex-1">
