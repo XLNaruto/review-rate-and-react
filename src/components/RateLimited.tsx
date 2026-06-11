@@ -8,9 +8,10 @@ type RateLimitedProps = {
 const RateLimited = ({ retryAfter = 60 }: RateLimitedProps) => {
   const [seconds, setSeconds] = useState<number>(retryAfter);
 
-  // Count the wait down to zero, then enable the retry button.
+  // Count the wait down to zero, then enable the retry button. The initial
+  // value comes from useState above; a changed retryAfter remounts this
+  // component (keyed in RateLimitGate), so we only tick inside the interval.
   useEffect(() => {
-    setSeconds(retryAfter);
     if (retryAfter <= 0) return;
 
     const id = setInterval(() => {

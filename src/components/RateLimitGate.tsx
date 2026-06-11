@@ -5,11 +5,11 @@ import { useRateLimited } from "../utils/RateLimit";
 // replaces the whole page with a friendly "too many requests" message.
 const RateLimitGate = () => {
   const { active, retryAfter } = useRateLimited();
-  if (active) return null;
+  if (!active) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] bg-white overflow-y-auto">
-      <RateLimited retryAfter={retryAfter} />
+      <RateLimited key={retryAfter} retryAfter={retryAfter} />
     </div>
   );
 };
