@@ -1,19 +1,29 @@
 import { apiHeader, getData, postData } from "../utils/ApiHelper";
 
+// Outcome of a scan-qr fetch. The caller branches on `status` so it can tell a
+// genuine "this QR doesn't exist" (404) apart from a transient failure or a
+// rate-limit — they need very different handling on the page.
+export type ScanQrResult =
+  | { status: "ok"; data: any }
+  | { status: "not_found" } // 404 — invalid/expired slug, drop any cached page
+  | { status: "rate_limited" } // 429 — the global gate takes over
+  | { status: "error" }; // network/5xx — keep whatever's cached
+
 // GET /public/scan-qr/{slug}
-export const getScanQr = async (slug: string) => {
+export const getScanQr = async (slug: string): Promise<ScanQrResult> => {
   const response: any = await getData(
     `public/scan-qr/${encodeURIComponent(slug)}`,
     {},
     apiHeader(false)
   );
 
-  if (String(response?.status) === "200") {
-    return response.data;
-  }
+  const code = Number(response?.status);
+  if (code === 200) return { status: "ok", data: response.data };
+  if (code === 404) return { status: "not_found" };
+  if (code === 429) return { status: "rate_limited" };
 
   console.log("getScanQr failed:", response?.data?.message ?? response?.status);
-  return null;
+  return { status: "error" };
 };
 
 // POST /public/reviews  — vendor (business), product & survey feedback save

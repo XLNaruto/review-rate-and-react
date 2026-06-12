@@ -173,6 +173,17 @@ export const saveQrData = async (slug: string, data: any): Promise<void> => {
   }
 };
 
+// Drop a slug's cached page. Called when the server says the QR is gone (404)
+// so a stale vendor page can't keep painting on subsequent refreshes.
+export const removeQrData = async (slug: string): Promise<void> => {
+  if (!slug) return;
+  try {
+    await tx(QR_STORE, "readwrite", (s) => s.delete(slug));
+  } catch {
+    /* ignore */
+  }
+};
+
 export const getQrData = async (slug: string): Promise<any | null> => {
   if (!slug) return null;
   try {

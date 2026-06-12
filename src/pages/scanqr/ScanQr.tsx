@@ -9,7 +9,13 @@ import SkeletonReaction from "../../components/SkeletonReaction";
 import InvalidQr from "../../components/InvalidQr";
 import { toAbsoluteUrl } from "../../utils/Assets";
 import { getScanQr } from "../../api";
-import { getSubmission, getQrData, saveQrData } from "../../utils/SubmissionStore";
+import {
+  getSubmission,
+  getQrData,
+  saveQrData,
+  removeQrData,
+} from "../../utils/SubmissionStore";
+import { isRateLimited } from "../../utils/RateLimit";
 
 const BLANK_IMAGE =
   "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><defs><linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%23f5f5f5'/><stop offset='100%25' stop-color='%23e5e5e5'/></linearGradient></defs><rect width='200' height='200' fill='url(%23bg)'/><g opacity='0.5'><circle cx='30' cy='30' r='3' fill='%23999999'/><circle cx='170' cy='40' r='2' fill='%23bbbbbb'/><circle cx='40' cy='170' r='2.5' fill='%23aaaaaa'/><circle cx='175' cy='165' r='3' fill='%23999999'/></g><g transform='translate(100 100)'><rect x='-46' y='-46' width='92' height='92' rx='16' fill='%23ffffff' opacity='0.9'/><rect x='-46' y='-46' width='92' height='92' rx='16' fill='none' stroke='%23111111' stroke-width='2.5'/><circle cx='-18' cy='-18' r='8' fill='%23111111'/><path d='M-46 18 L-20 -4 L0 12 L20 -8 L46 16 L46 38 L-46 38 Z' fill='%23111111' opacity='0.85'/></g></svg>";
@@ -51,16 +57,27 @@ const ScanQr = () => {
 
       // 2) Revalidate from the network (stale-while-revalidate). On the very
       //    first visit there's no cache, so this is what hides the skeleton.
-      const res = slug ? await getScanQr(slug) : null;
+      //    Skip it entirely while a rate-limit window is open — the gate is
+      //    already covering the page and the request would just 429 again.
+      const result =
+        slug && !isRateLimited() ? await getScanQr(slug) : null;
       if (cancelled) return;
-      if (res) {
-        setData(res);
-        saveQrData(slug, res);
+      if (result?.status === "ok") {
+        setData(result.data);
+        saveQrData(slug, result.data);
         if (!cached && saved) {
           setSubmission(saved.payload);
           setSubmitted(true);
         }
+      } else if (result?.status === "not_found") {
+        // The QR is genuinely gone: drop the stale cache so it can't keep
+        // painting on later refreshes, and fall through to <InvalidQr/>.
+        await removeQrData(slug);
+        if (cancelled) return;
+        setData(null);
       }
+      // "rate_limited" / "error" / skipped: keep whatever we already have
+      // (cached page or skeleton) and let the gate/retry handle it.
       setLoading(false);
     })();
     return () => {

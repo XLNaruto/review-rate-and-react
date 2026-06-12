@@ -9,6 +9,29 @@ const EVENT = "api:rate-limited";
 // Fallback wait (seconds) when the server doesn't tell us when to retry.
 const DEFAULT_RETRY_AFTER = 60;
 
+// We persist the absolute moment the limit lifts (epoch ms) in sessionStorage.
+// That lets a refresh *inside* the window render the gate on the very first
+// paint — without it, the page would flash the cached details for a beat
+// before the 429 came back and flipped the gate on.
+const DEADLINE_KEY = "rr_rate_limit_until";
+
+// Seconds left on a persisted rate-limit window, or 0 if none/expired.
+const remainingSeconds = (): number => {
+  try {
+    const raw = window.sessionStorage.getItem(DEADLINE_KEY);
+    if (!raw) return 0;
+    const deadline = Number(raw);
+    if (!Number.isFinite(deadline)) return 0;
+    return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+  } catch {
+    return 0;
+  }
+};
+
+// Synchronous check for callers that want to skip a request that's just going
+// to 429 again (e.g. the scan-qr fetch on a refresh during the window).
+export const isRateLimited = (): boolean => remainingSeconds() > 0;
+
 export type RateLimitState = {
   active: boolean;
   // Seconds to wait before retrying. Taken from x-ratelimit-reset (seconds
@@ -41,19 +64,34 @@ const parseRetryAfter = (value: unknown): number => {
 
 export const emitRateLimited = (resetHeader?: unknown) => {
   if (typeof window === "undefined") return;
+  const retryAfter = parseRetryAfter(resetHeader);
+  try {
+    window.sessionStorage.setItem(
+      DEADLINE_KEY,
+      String(Date.now() + retryAfter * 1000)
+    );
+  } catch {
+    /* storage unavailable — the gate still works for this page load */
+  }
   window.dispatchEvent(
     new CustomEvent<RateLimitState>(EVENT, {
-      detail: { active: true, retryAfter: parseRetryAfter(resetHeader) },
+      detail: { active: true, retryAfter },
     })
   );
 };
 
+// Initial gate state, read synchronously so a refresh inside an active window
+// shows the rate-limit page immediately instead of flashing the cached page.
+const initialState = (): RateLimitState => {
+  const remaining = remainingSeconds();
+  return remaining > 0
+    ? { active: true, retryAfter: remaining }
+    : { active: false, retryAfter: DEFAULT_RETRY_AFTER };
+};
+
 // React hook: returns the current rate-limit state for the App-level gate.
 export const useRateLimited = (): RateLimitState => {
-  const [state, setState] = useState<RateLimitState>({
-    active: false,
-    retryAfter: DEFAULT_RETRY_AFTER,
-  });
+  const [state, setState] = useState<RateLimitState>(initialState);
 
   useEffect(() => {
     const onLimit = (e: Event) => {
