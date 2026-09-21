@@ -139,7 +139,7 @@ const SurveySummary = ({
             />
             Email:
           </div>
-          <p className="text-[14px] text-muted">{email}</p>
+          <p className="text-[14px] text-muted break-words">{email}</p>
         </div>
       )}
 
@@ -199,7 +199,9 @@ const SurveySummary = ({
             />
             Description:
           </div>
-          <p className="text-[14px] text-muted">{description}</p>
+          <p className="text-[14px] text-muted break-words whitespace-pre-wrap">
+            {description}
+          </p>
         </div>
       )}
 
