@@ -82,6 +82,8 @@ type FeedbackFormProps = {
   reactions?: ScanQrReaction[];
   /** Vendor-configured reaction/rating prompt; falls back to the default copy. */
   reviewQuestion?: string | null;
+  /** Vendor-configured label for the description field; falls back to the default copy. */
+  descriptionQuestion?: string | null;
 };
 
 const FeedbackForm = ({
@@ -93,12 +95,14 @@ const FeedbackForm = ({
   userInfoModes,
   reactions = [],
   reviewQuestion,
+  descriptionQuestion,
 }: FeedbackFormProps) => {
   // The admin can override the reaction/rating prompt per QR code; an empty or
   // whitespace-only value means "use the default question".
   const question =
     reviewQuestion?.trim() ||
     "How would you rate + react your business experience?";
+  const descriptionLabel = descriptionQuestion?.trim() || "Description";
   // Reactions are configured per-vendor and arrive in display order; sort
   // defensively so the row order is stable regardless of payload ordering.
   const reactionList = [...reactions].sort(
@@ -787,7 +791,7 @@ const FeedbackForm = ({
 
       <div className="mb-5">
         <label className="field-label" htmlFor="description">
-          Description
+          {descriptionLabel}
         </label>
         <textarea
           id="description"

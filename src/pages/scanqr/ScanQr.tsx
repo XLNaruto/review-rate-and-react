@@ -180,6 +180,7 @@ const ScanQr = () => {
             userInfoModes={data.user_info_modes}
             reactions={data.reactions ?? []}
             reviewQuestion={qr?.review_question}
+            descriptionQuestion={qr?.description_question}
           />
         </div>
       </div>
@@ -210,6 +211,7 @@ const ScanQr = () => {
           userInfoModes={data.user_info_modes}
           reactions={data.reactions ?? []}
           reviewQuestion={qr?.review_question}
+          descriptionQuestion={qr?.description_question}
         />
       </div>
     </div>
