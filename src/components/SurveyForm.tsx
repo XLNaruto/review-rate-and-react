@@ -29,6 +29,7 @@ type UserInfoModes = {
   gender_mode?: FieldMode | string;
   postal_code_mode?: FieldMode | string;
   race_mode?: FieldMode | string;
+  description_mode?: FieldMode | string;
 };
 
 export type SurveyQuestion = {
@@ -101,6 +102,8 @@ const SurveyForm = ({
   // existed, so default to "optional" (visible, not enforced) when absent.
   const postalMode = (userInfoModes?.postal_code_mode as FieldMode) ?? "optional";
   const raceMode = (userInfoModes?.race_mode as FieldMode) ?? "optional";
+  const descriptionMode =
+    (userInfoModes?.description_mode as FieldMode) ?? "optional";
   // Ethnicity/race reference data — used to resolve ids→names for the payload.
   const { ethnicities, races } = useDemographicsData();
 
@@ -136,6 +139,7 @@ const SurveyForm = ({
   const genderRef = useRef<HTMLButtonElement>(null);
   const postalCodeRef = useRef<HTMLInputElement>(null);
   const raceRef = useRef<HTMLDivElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const consentRef = useRef<HTMLDivElement>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -271,6 +275,9 @@ const SurveyForm = ({
       if (raceErr) e.race = raceErr.message;
     }
 
+    if (descriptionMode === "required" && !description.trim())
+      e.description = "Description is required.";
+
     if (!consent) e.consent = "Please acknowledge and consent to continue.";
 
     return e;
@@ -283,6 +290,7 @@ const SurveyForm = ({
       if (key === "gender") return genderRef.current;
       if (key === "postalCode") return postalCodeRef.current;
       if (key === "race") return raceRef.current;
+      if (key === "description") return descriptionRef.current;
       if (key === "consent") return consentRef.current;
       const base = key.endsWith(":rate") ? key.slice(0, -5) : key;
       return questionRefs.current[base] ?? null;
@@ -294,6 +302,7 @@ const SurveyForm = ({
       "gender",
       "postalCode",
       "race",
+      "description",
       "consent",
     ];
     const first = order.find((k) => errs[k]);
@@ -324,7 +333,9 @@ const SurveyForm = ({
       kind: "survey",
       survey_id: surveyId,
       answers: builtAnswers,
-      ...(trimmedDescription ? { description: trimmedDescription } : {}),
+      ...(descriptionMode !== "off" && trimmedDescription
+        ? { description: trimmedDescription }
+        : {}),
       ...(emailMode !== "off" && email.trim() ? { email: email.trim() } : {}),
       ...(genderMode !== "off" && gender.trim() ? { gender: gender.trim() } : {}),
       ...(ageMode !== "off" && age.trim() ? { age: Number(age) } : {}),
@@ -383,7 +394,7 @@ const SurveyForm = ({
         age={ageMode !== "off" ? age : ""}
         gender={genderMode !== "off" ? gender : ""}
         postalCode={postalMode !== "off" ? postalCode : ""}
-        description={description}
+        description={descriptionMode !== "off" ? description : ""}
         raceAndEthnicity={
           raceMode !== "off"
             ? (initialSubmission?.raceAndEthnicity ??
@@ -611,18 +622,30 @@ const SurveyForm = ({
         </div>
       )}
 
-      <div className="mb-5">
-        <label className="field-label" htmlFor="survey-desc">
-          Description
-        </label>
-        <textarea
-          id="survey-desc"
-          placeholder="enter description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="field-textarea nice-scrollbar"
-        />
-      </div>
+      {descriptionMode !== "off" && (
+        <div className="mb-5">
+          <label
+            className={`field-label ${descriptionMode === "required" ? "required" : ""}`}
+            htmlFor="survey-desc"
+          >
+            Description
+          </label>
+          <textarea
+            ref={descriptionRef}
+            id="survey-desc"
+            placeholder="enter description"
+            value={description}
+            onChange={(e) => {
+              clearError("description");
+              setDescription(e.target.value);
+            }}
+            className={`field-textarea nice-scrollbar ${errors.description ? "border-red-500" : ""}`}
+          />
+          {errors.description && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.description}</p>
+          )}
+        </div>
+      )}
 
       <div className="mb-5">
         <div

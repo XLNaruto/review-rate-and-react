@@ -49,6 +49,7 @@ type UserInfoModes = {
   postal_code_mode?: FieldMode | string;
   race_mode?: FieldMode | string;
   business_service_mode?: FieldMode | string;
+  description_mode?: FieldMode | string;
 };
 
 type FeedbackSubmission = {
@@ -116,6 +117,8 @@ const FeedbackForm = ({
   const postalMode =
     (userInfoModes?.postal_code_mode as FieldMode) ?? "optional";
   const raceMode = (userInfoModes?.race_mode as FieldMode) ?? "optional";
+  const descriptionMode =
+    (userInfoModes?.description_mode as FieldMode) ?? "optional";
   // Live ethnicity/race reference data (with static fallback) — used both to
   // render the fields and to resolve ids→names for the save payload.
   const { ethnicities, races } = useDemographicsData();
@@ -157,6 +160,7 @@ const FeedbackForm = ({
   const postalCodeRef = useRef<HTMLInputElement>(null);
   const serviceRef = useRef<HTMLButtonElement>(null);
   const raceRef = useRef<HTMLDivElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const consentRef = useRef<HTMLDivElement>(null);
   const reactionRowRef = useRef<HTMLDivElement>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -310,6 +314,9 @@ const FeedbackForm = ({
       if (raceErr) e.race = raceErr.message;
     }
 
+    if (descriptionMode === "required" && !description.trim())
+      e.description = `${descriptionLabel} is required.`;
+
     if (!consent) e.consent = "Please acknowledge and consent to continue.";
 
     return e;
@@ -325,6 +332,7 @@ const FeedbackForm = ({
       "gender",
       "postalCode",
       "race",
+      "description",
       "consent",
     ];
     const refMap = {
@@ -336,6 +344,7 @@ const FeedbackForm = ({
       gender: genderRef,
       postalCode: postalCodeRef,
       race: raceRef,
+      description: descriptionRef,
       consent: consentRef,
     } as const;
     const first = order.find((k) => errs[k]);
@@ -367,7 +376,9 @@ const FeedbackForm = ({
       qr_code_id: qrCodeId,
       rating: selectedRating as number,
       reaction: selectedReaction as string,
-      ...(trimmedDescription ? { description: trimmedDescription } : {}),
+      ...(descriptionMode !== "off" && trimmedDescription
+        ? { description: trimmedDescription }
+        : {}),
       ...(emailMode !== "off" && email.trim() ? { email: email.trim() } : {}),
       ...(genderMode !== "off" && gender.trim()
         ? { gender: gender.trim() }
@@ -461,7 +472,7 @@ const FeedbackForm = ({
                 .map((p) => p.name))
             : []
         }
-        description={description}
+        description={descriptionMode !== "off" ? description : ""}
         raceAndEthnicity={
           raceMode !== "off"
             ? (initialSubmission?.raceAndEthnicity ??
@@ -789,18 +800,30 @@ const FeedbackForm = ({
         </div>
       )}
 
-      <div className="mb-5">
-        <label className="field-label" htmlFor="description">
-          {descriptionLabel}
-        </label>
-        <textarea
-          id="description"
-          placeholder="enter description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="field-textarea"
-        />
-      </div>
+      {descriptionMode !== "off" && (
+        <div className="mb-5">
+          <label
+            className={`field-label ${descriptionMode === "required" ? "required" : ""}`}
+            htmlFor="description"
+          >
+            {descriptionLabel}
+          </label>
+          <textarea
+            ref={descriptionRef}
+            id="description"
+            placeholder="enter description"
+            value={description}
+            onChange={(e) => {
+              clearError("description");
+              setDescription(e.target.value);
+            }}
+            className={`field-textarea ${errors.description ? "border-red-500" : ""}`}
+          />
+          {errors.description && (
+            <p className="mt-1.5 text-xs text-red-500">{errors.description}</p>
+          )}
+        </div>
+      )}
       <div className="mb-5">
         <div
           ref={consentRef}
