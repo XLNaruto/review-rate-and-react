@@ -103,7 +103,7 @@ const SurveyForm = ({
   const postalMode = (userInfoModes?.postal_code_mode as FieldMode) ?? "optional";
   const raceMode = (userInfoModes?.race_mode as FieldMode) ?? "optional";
   const descriptionMode =
-    (userInfoModes?.description_mode as FieldMode) ?? "optional";
+    (userInfoModes?.description_mode as FieldMode) ?? "off";
   // Ethnicity/race reference data — used to resolve ids→names for the payload.
   const { ethnicities, races } = useDemographicsData();
 

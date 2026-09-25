@@ -83,8 +83,6 @@ type FeedbackFormProps = {
   reactions?: ScanQrReaction[];
   /** Vendor-configured reaction/rating prompt; falls back to the default copy. */
   reviewQuestion?: string | null;
-  /** Vendor-configured label for the description field; falls back to the default copy. */
-  descriptionQuestion?: string | null;
 };
 
 const FeedbackForm = ({
@@ -96,14 +94,12 @@ const FeedbackForm = ({
   userInfoModes,
   reactions = [],
   reviewQuestion,
-  descriptionQuestion,
 }: FeedbackFormProps) => {
   // The admin can override the reaction/rating prompt per QR code; an empty or
   // whitespace-only value means "use the default question".
   const question =
     reviewQuestion?.trim() ||
     "How would you rate + react your business experience?";
-  const descriptionLabel = descriptionQuestion?.trim() || "Description";
   // Reactions are configured per-vendor and arrive in display order; sort
   // defensively so the row order is stable regardless of payload ordering.
   const reactionList = [...reactions].sort(
@@ -118,7 +114,7 @@ const FeedbackForm = ({
     (userInfoModes?.postal_code_mode as FieldMode) ?? "optional";
   const raceMode = (userInfoModes?.race_mode as FieldMode) ?? "optional";
   const descriptionMode =
-    (userInfoModes?.description_mode as FieldMode) ?? "optional";
+    (userInfoModes?.description_mode as FieldMode) ?? "off";
   // Live ethnicity/race reference data (with static fallback) — used both to
   // render the fields and to resolve ids→names for the save payload.
   const { ethnicities, races } = useDemographicsData();
@@ -315,7 +311,7 @@ const FeedbackForm = ({
     }
 
     if (descriptionMode === "required" && !description.trim())
-      e.description = `${descriptionLabel} is required.`;
+      e.description = "Description is required.";
 
     if (!consent) e.consent = "Please acknowledge and consent to continue.";
 
@@ -806,7 +802,7 @@ const FeedbackForm = ({
             className={`field-label ${descriptionMode === "required" ? "required" : ""}`}
             htmlFor="description"
           >
-            {descriptionLabel}
+            Description
           </label>
           <textarea
             ref={descriptionRef}
