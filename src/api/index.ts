@@ -138,10 +138,12 @@ export type QrReviewPayload = {
 };
 
 // per-question answer inside a survey submission
+// Only reaction questions carry top-level rating/reaction; open-text and
+// multiple-choice answers send just `answer`.
 export type SurveyAnswer = {
   survey_question_id: string;
-  rating: number | null;
-  reaction: string | null;
+  rating?: number | null;
+  reaction?: string | null;
   answer:
     | { type: "reaction"; value: string | null }
     | { type: "rating_1_5"; value: number | null }
@@ -153,6 +155,8 @@ export type SurveyAnswer = {
 export type SurveyReviewPayload = {
   kind: "survey";
   survey_id: string;
+  // Time from form open to submit, in milliseconds.
+  completion_ms?: number;
   description?: string;
   email?: string;
   gender?: string;

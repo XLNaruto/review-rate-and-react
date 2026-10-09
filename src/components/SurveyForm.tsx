@@ -58,6 +58,7 @@ type SurveyFormProps = {
   onSubmitted?: () => void;
   surveyId: string;
   slug: string;
+  title?: string;
   initialSubmission?: SurveySubmission | null;
   questions: SurveyQuestion[];
   userInfoModes?: UserInfoModes;
@@ -65,6 +66,8 @@ type SurveyFormProps = {
 };
 
 const emptyRR: SurveyRateReactValue = { reaction: null, rating: null };
+
+const msSince = (start: number) => Date.now() - start;
 
 const Checkbox = ({ checked }: { checked: boolean }) => (
   <span
@@ -90,6 +93,7 @@ const SurveyForm = ({
   onSubmitted,
   surveyId,
   slug,
+  title,
   initialSubmission,
   questions,
   userInfoModes,
@@ -133,6 +137,8 @@ const SurveyForm = ({
   const [submitted, setSubmitted] = useState(!!initialSubmission);
   const [submitting, setSubmitting] = useState(false);
 
+  // Start of the fill-in, for `completion_ms` on submit.
+  const [startedAt] = useState(() => Date.now());
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const emailRef = useRef<HTMLInputElement>(null);
   const ageRef = useRef<HTMLInputElement>(null);
@@ -158,18 +164,8 @@ const SurveyForm = ({
 
   const setRr = (id: string, v: SurveyRateReactValue) => {
     // Only clear once the rate is actually complete (both reaction AND rating);
-    // a reaction-only selection is still pending, so keep the error. Clear ONLY
-    // the rate error: for reaction/rating questions that's `id` (the rate is the
-    // answer); for choice/open-text questions it's `${id}:rate`, leaving the
-    // separate answer error (`id`) intact until the text/choice is filled.
-    if (v.reaction && v.rating != null) {
-      const q = sorted.find((x) => x.id === id);
-      if (q && q.type !== "reaction" && q.type !== "rating_1_5") {
-        clearError(`${id}:rate`);
-      } else {
-        clearError(id);
-      }
-    }
+    // a reaction-only selection is still pending, so keep the error.
+    if (v.reaction && v.rating != null) clearError(id);
     setRrAnswers((prev) => ({ ...prev, [id]: v }));
   };
 
@@ -220,12 +216,10 @@ const SurveyForm = ({
         const a = answers[q.id];
         if (!(Array.isArray(a) && a.length > 0))
           e[q.id] = "Please complete this question.";
-        if (!rateOk) e[`${q.id}:rate`] = "Please rate your experience.";
       } else if (q.type === "open_text") {
         const a = answers[q.id];
         if (!(typeof a === "string" && a.trim() !== ""))
           e[q.id] = "Please complete this question.";
-        if (!rateOk) e[`${q.id}:rate`] = "Please rate your experience.";
       } else {
         // reaction / rating_1_5 — the rate row is the answer
         if (!rateOk) e[q.id] = "Please rate your experience.";
@@ -292,11 +286,10 @@ const SurveyForm = ({
       if (key === "race") return raceRef.current;
       if (key === "description") return descriptionRef.current;
       if (key === "consent") return consentRef.current;
-      const base = key.endsWith(":rate") ? key.slice(0, -5) : key;
-      return questionRefs.current[base] ?? null;
+      return questionRefs.current[key] ?? null;
     };
     const order = [
-      ...sorted.flatMap((q) => [q.id, `${q.id}:rate`]),
+      ...sorted.map((q) => q.id),
       "email",
       "age",
       "gender",
@@ -319,12 +312,17 @@ const SurveyForm = ({
 
     if (submitting) return;
 
-    const builtAnswers: SurveyAnswer[] = sorted.map((q) => ({
-      survey_question_id: q.id,
-      rating: rrAnswers[q.id]?.rating ?? null,
-      reaction: rrAnswers[q.id]?.reaction ?? null,
-      answer: buildAnswer(q),
-    }));
+    // Only reaction-style questions carry top-level rating/reaction.
+    const builtAnswers: SurveyAnswer[] = sorted.map((q) =>
+      q.type === "open_text" || q.type === "multiple_choice"
+        ? { survey_question_id: q.id, answer: buildAnswer(q) }
+        : {
+            survey_question_id: q.id,
+            rating: rrAnswers[q.id]?.rating ?? null,
+            reaction: rrAnswers[q.id]?.reaction ?? null,
+            answer: buildAnswer(q),
+          }
+    );
 
     const trimmedDescription = description.trim();
 
@@ -332,6 +330,7 @@ const SurveyForm = ({
     const response: any = await submitReview({
       kind: "survey",
       survey_id: surveyId,
+      completion_ms: msSince(startedAt),
       answers: builtAnswers,
       ...(descriptionMode !== "off" && trimmedDescription
         ? { description: trimmedDescription }
@@ -408,7 +407,7 @@ const SurveyForm = ({
   return (
     <div className="animate-fade-in-up [animation-delay:320ms]">
       <h1 className="text-[20px] font-bold mb-4">
-        Help us personalize your experience
+        {title?.trim() || "Help us personalize your experience"}
       </h1>
 
       {sorted.map((q, idx) => (
@@ -418,7 +417,7 @@ const SurveyForm = ({
             questionRefs.current[q.id] = el;
           }}
           className={`question-card mb-4 ${
-            errors[q.id] || errors[`${q.id}:rate`] ? "border border-red-500" : ""
+            errors[q.id] ? "border border-red-500" : ""
           }`}
         >
           <p className="font-bold text-[14px] mb-2">Question {idx + 1}</p>
@@ -476,24 +475,6 @@ const SurveyForm = ({
               onChange={(e) => setAnswer(q.id, e.target.value)}
               className="nice-scrollbar w-full rounded-2xl bg-white border border-option-border px-4 py-3 text-sm placeholder:text-option-text outline-none resize-none h-24 transition focus:border-black focus:ring-2 focus:ring-black/10"
             />
-          )}
-
-          {(q.type === "multiple_choice" || q.type === "open_text") && (
-            <div className="mt-4 -mx-5 -mb-5 rounded-b-[30px] bg-survey-rate-bg p-5">
-              <p className="text-[14px] font-bold mb-5 required">
-                How would you rate your experience?
-              </p>
-              <SurveyReactionRow
-                value={rrAnswers[q.id] ?? emptyRR}
-                onChange={(v) => setRr(q.id, v)}
-                reactions={reactions}
-              />
-              {errors[`${q.id}:rate`] && (
-                <p className="mt-3 text-xs text-red-500">
-                  {errors[`${q.id}:rate`]}
-                </p>
-              )}
-            </div>
           )}
         </div>
       ))}

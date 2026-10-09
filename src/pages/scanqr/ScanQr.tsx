@@ -147,6 +147,7 @@ const ScanQr = () => {
             onSubmitted={handleSubmitted}
             surveyId={surveyId}
             slug={slug}
+            title={survey?.title}
             initialSubmission={submission}
             questions={survey?.questions ?? []}
             userInfoModes={data.user_info_modes}
