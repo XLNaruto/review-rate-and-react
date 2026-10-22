@@ -12,13 +12,42 @@ type SelectDropdownProps = {
   options: SelectOption[];
   placeholder?: string;
   error?: boolean;
+  // Adds a filter box above the options and caps the list height — for long
+  // lists (e.g. a respondent group with many supervisors).
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  // Tapping the selected option again clears it (onChange("")).
+  allowDeselect?: boolean;
+  ariaLabelledBy?: string;
+  ariaRequired?: boolean;
 };
 
 const SelectDropdown = forwardRef<HTMLButtonElement, SelectDropdownProps>(
-  ({ id, value, onChange, options, placeholder = "Select", error = false }, ref) => {
+  (
+    {
+      id,
+      value,
+      onChange,
+      options,
+      placeholder = "Select",
+      error = false,
+      searchable = false,
+      searchPlaceholder = "Search...",
+      allowDeselect = false,
+      ariaLabelledBy,
+      ariaRequired,
+    },
+    ref
+  ) => {
     const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState("");
     const wrapRef = useRef<HTMLDivElement>(null);
     const selected = options.find((o) => o.value === value);
+    const query = search.trim().toLowerCase();
+    const visible =
+      searchable && query
+        ? options.filter((o) => o.label.toLowerCase().includes(query))
+        : options;
 
     useEffect(() => {
       if (!open) return;
@@ -44,7 +73,12 @@ const SelectDropdown = forwardRef<HTMLButtonElement, SelectDropdownProps>(
           type="button"
           aria-haspopup="listbox"
           aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
+          aria-labelledby={ariaLabelledBy ? `${ariaLabelledBy} ${id ?? ""}`.trim() : undefined}
+          aria-required={ariaRequired || undefined}
+          onClick={() => {
+            setSearch("");
+            setOpen((v) => !v);
+          }}
           className={`w-full rounded-full border bg-white px-4 py-2.5 text-sm text-left flex items-center justify-between gap-2 outline-none transition focus:border-black focus:ring-2 focus:ring-black/10 ${
             open ? "border-black ring-2 ring-black/10" : "border-border-soft"
           } ${error ? "animate-blink-error" : ""}`}
@@ -72,18 +106,36 @@ const SelectDropdown = forwardRef<HTMLButtonElement, SelectDropdownProps>(
         </button>
 
         {open && (
+          <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-border-soft bg-white p-1.5 shadow-[0_12px_30px_-8px_rgba(0,0,0,0.18)] animate-fade-in">
+          {searchable && (
+            <input
+              type="text"
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              className="mb-1.5 w-full rounded-full border border-border-soft bg-surface-soft px-4 py-2.5 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
+            />
+          )}
           <ul
             role="listbox"
-            className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-border-soft bg-white p-1.5 shadow-[0_12px_30px_-8px_rgba(0,0,0,0.18)] animate-fade-in"
+            aria-labelledby={ariaLabelledBy}
+            className={searchable ? "nice-scrollbar max-h-60 overflow-y-auto" : undefined}
           >
-            {options.map((opt) => {
+            {searchable && visible.length === 0 && (
+              <li className="px-3.5 py-2.5 text-sm text-placeholder">
+                No matches found.
+              </li>
+            )}
+            {visible.map((opt) => {
               const isSelected = opt.value === value;
               return (
                 <li key={opt.value} role="option" aria-selected={isSelected}>
                   <button
                     type="button"
                     onClick={() => {
-                      onChange(opt.value);
+                      onChange(allowDeselect && isSelected ? "" : opt.value);
                       setOpen(false);
                     }}
                     className={`w-full rounded-xl px-3.5 py-2.5 text-sm text-left flex items-center justify-between gap-2 transition ${
@@ -109,6 +161,7 @@ const SelectDropdown = forwardRef<HTMLButtonElement, SelectDropdownProps>(
               );
             })}
           </ul>
+          </div>
         )}
       </div>
     );

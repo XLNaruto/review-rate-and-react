@@ -4,7 +4,17 @@ import SurveyReactionRow, { type SurveyRateReactValue } from "./SurveyReactionRo
 import SurveySummary from "./SurveySummary";
 import SelectDropdown from "./SelectDropdown";
 import EthnicityRaceFields from "./EthnicityRaceFields";
-import { submitReview, type SurveyAnswer, type ScanQrReaction } from "../api";
+import ProfilePromptField from "./ProfilePromptField";
+import {
+  submitReview,
+  buildProfilePayload,
+  buildProfileSummary,
+  REVIEW_PROFILE_OPTION_INVALID,
+  REVIEW_PROFILE_REQUIRED,
+  type ProfilePrompt,
+  type SurveyAnswer,
+  type ScanQrReaction,
+} from "../api";
 import { saveSubmission } from "../utils/SubmissionStore";
 import { useDemographicsData } from "../hooks/useDemographicsData";
 import {
@@ -52,7 +62,13 @@ type SurveySubmission = {
   // Resolved names captured at submit time so the restored summary renders
   // straight from local data — no id→list lookup that could go stale.
   raceAndEthnicity?: RaceAndEthnicityPayload;
+  // Respondent-group answers (field_id → option_id) and their resolved labels.
+  profile?: Record<string, string>;
+  profileAnswers?: { label: string; value: string }[];
 };
+
+// Error key for a respondent-group prompt in the shared `errors` map.
+const profileKey = (fieldId: string) => `profile:${fieldId}`;
 
 type SurveyFormProps = {
   onSubmitted?: () => void;
@@ -63,6 +79,10 @@ type SurveyFormProps = {
   questions: SurveyQuestion[];
   userInfoModes?: UserInfoModes;
   reactions?: ScanQrReaction[];
+  /** Respondent-group questions, in display order. */
+  profilePrompts?: ProfilePrompt[];
+  /** Re-fetches the scan response (fresh profile prompts). */
+  onRefreshPrompts?: () => Promise<void>;
 };
 
 const emptyRR: SurveyRateReactValue = { reaction: null, rating: null };
@@ -98,6 +118,8 @@ const SurveyForm = ({
   questions,
   userInfoModes,
   reactions = [],
+  profilePrompts = [],
+  onRefreshPrompts,
 }: SurveyFormProps) => {
   const emailMode = (userInfoModes?.email_mode as FieldMode) ?? "off";
   const ageMode = (userInfoModes?.age_mode as FieldMode) ?? "off";
@@ -133,6 +155,9 @@ const SurveyForm = ({
   const [demographics, setDemographics] = useState<DemographicsValue>(
     initialSubmission?.demographics ?? emptyDemographics
   );
+  const [profile, setProfile] = useState<Record<string, string>>(
+    initialSubmission?.profile ?? {}
+  );
   const [consent, setConsent] = useState(!!initialSubmission);
   const [submitted, setSubmitted] = useState(!!initialSubmission);
   const [submitting, setSubmitting] = useState(false);
@@ -147,6 +172,7 @@ const SurveyForm = ({
   const raceRef = useRef<HTMLDivElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const consentRef = useRef<HTMLDivElement>(null);
+  const profileRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const clearError = (key: string) =>
@@ -177,6 +203,16 @@ const SurveyForm = ({
         ...prev,
         [id]: cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt],
       };
+    });
+  };
+
+  const setProfileAnswer = (fieldId: string, optionId: string) => {
+    clearError(profileKey(fieldId));
+    setProfile((prev) => {
+      const next = { ...prev };
+      if (optionId) next[fieldId] = optionId;
+      else delete next[fieldId];
+      return next;
     });
   };
 
@@ -224,6 +260,11 @@ const SurveyForm = ({
         // reaction / rating_1_5 — the rate row is the answer
         if (!rateOk) e[q.id] = "Please rate your experience.";
       }
+    }
+
+    for (const p of profilePrompts) {
+      if (p.mode === "required" && !profile[p.field_id])
+        e[profileKey(p.field_id)] = `${p.label} is required.`;
     }
 
     if (emailMode === "required" && email.trim() === "")
@@ -286,10 +327,21 @@ const SurveyForm = ({
       if (key === "race") return raceRef.current;
       if (key === "description") return descriptionRef.current;
       if (key === "consent") return consentRef.current;
+      // A respondent-group prompt's ref is its wrapper — focus the selected
+      // pill, else its first pill / the dropdown button.
+      if (key.startsWith("profile:")) {
+        const wrap = profileRefs.current[key.slice("profile:".length)];
+        return (
+          wrap?.querySelector<HTMLElement>("input:checked, input, button") ??
+          wrap ??
+          null
+        );
+      }
       return questionRefs.current[key] ?? null;
     };
     const order = [
       ...sorted.map((q) => q.id),
+      ...profilePrompts.map((p) => profileKey(p.field_id)),
       "email",
       "age",
       "gender",
@@ -300,6 +352,35 @@ const SurveyForm = ({
     ];
     const first = order.find((k) => errs[k]);
     if (first) focusEl(refFor(first));
+  };
+
+  // Server-side safety net for the respondent-group prompts. Returns true when
+  // the response was one of the profile errors and has been handled inline.
+  const handleProfileError = async (response: any) => {
+    const code = response?.data?.error;
+    const fieldId: string | undefined = response?.data?.details?.field_id;
+    if (
+      !fieldId ||
+      (code !== REVIEW_PROFILE_REQUIRED &&
+        code !== REVIEW_PROFILE_OPTION_INVALID)
+    )
+      return false;
+
+    const label = profilePrompts.find((p) => p.field_id === fieldId)?.label;
+    let message: string =
+      response?.data?.message ??
+      (label ? `${label} is required.` : "This field is required.");
+    if (code === REVIEW_PROFILE_OPTION_INVALID) {
+      // The option was removed by the business: reload the prompts, reset this
+      // one and ask again.
+      setProfileAnswer(fieldId, "");
+      await onRefreshPrompts?.();
+      message = "That option is no longer available. Please choose again.";
+    }
+    const errs = { [profileKey(fieldId)]: message };
+    setErrors(errs);
+    focusFirstError(errs);
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -325,6 +406,7 @@ const SurveyForm = ({
     );
 
     const trimmedDescription = description.trim();
+    const profilePayload = buildProfilePayload(profilePrompts, profile);
 
     setSubmitting(true);
     const response: any = await submitReview({
@@ -351,8 +433,11 @@ const SurveyForm = ({
             ),
           }
         : {}),
+      ...(profilePayload.length ? { profile: profilePayload } : {}),
     });
     setSubmitting(false);
+
+    if (await handleProfileError(response)) return;
 
     if (!["200", "201"].includes(String(response?.status))) {
       toast.error(
@@ -376,6 +461,8 @@ const SurveyForm = ({
         ethnicities,
         races
       ),
+      profile,
+      profileAnswers: buildProfileSummary(profilePrompts, profile),
     });
 
     setSubmitted(true);
@@ -394,6 +481,10 @@ const SurveyForm = ({
         gender={genderMode !== "off" ? gender : ""}
         postalCode={postalMode !== "off" ? postalCode : ""}
         description={descriptionMode !== "off" ? description : ""}
+        profileAnswers={
+          initialSubmission?.profileAnswers ??
+          buildProfileSummary(profilePrompts, profile)
+        }
         raceAndEthnicity={
           raceMode !== "off"
             ? (initialSubmission?.raceAndEthnicity ??
@@ -479,8 +570,26 @@ const SurveyForm = ({
         </div>
       ))}
 
+      {profilePrompts.length > 0 && (
+        <div className="mt-6">
+          {profilePrompts.map((p) => (
+            <ProfilePromptField
+              key={p.field_id}
+              ref={(el) => {
+                profileRefs.current[p.field_id] = el;
+              }}
+              idPrefix="survey"
+              prompt={p}
+              value={profile[p.field_id] ?? ""}
+              onChange={(v) => setProfileAnswer(p.field_id, v)}
+              error={errors[profileKey(p.field_id)]}
+            />
+          ))}
+        </div>
+      )}
+
       {genderMode !== "off" && (
-        <div className="mb-5 mt-6">
+        <div className={`mb-5 ${profilePrompts.length > 0 ? "" : "mt-6"}`}>
           <label
             className={`field-label ${genderMode === "required" ? "required" : ""}`}
           >

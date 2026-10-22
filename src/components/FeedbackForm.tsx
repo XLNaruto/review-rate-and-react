@@ -7,9 +7,15 @@ import SmartImage from "./SmartImage";
 import SelectDropdown from "./SelectDropdown";
 import EthnicityRaceFields from "./EthnicityRaceFields";
 import BusinessServiceField from "./BusinessServiceField";
+import ProfilePromptField from "./ProfilePromptField";
 import {
   submitReview,
   getScanQrProducts,
+  buildProfilePayload,
+  buildProfileSummary,
+  REVIEW_PROFILE_OPTION_INVALID,
+  REVIEW_PROFILE_REQUIRED,
+  type ProfilePrompt,
   type ScanQrProduct,
   type ScanQrReaction,
 } from "../api";
@@ -71,7 +77,13 @@ type FeedbackSubmission = {
   // straight from local data — no id→list lookup that could go stale.
   serviceNames?: string[];
   raceAndEthnicity?: RaceAndEthnicityPayload;
+  // Respondent-group answers (field_id → option_id) and their resolved labels.
+  profile?: Record<string, string>;
+  profileAnswers?: { label: string; value: string }[];
 };
+
+// Error key for a respondent-group prompt in the shared `errors` map.
+const profileKey = (fieldId: string) => `profile:${fieldId}`;
 
 type FeedbackFormProps = {
   onSubmitted?: () => void;
@@ -83,6 +95,10 @@ type FeedbackFormProps = {
   reactions?: ScanQrReaction[];
   /** Vendor-configured reaction/rating prompt; falls back to the default copy. */
   reviewQuestion?: string | null;
+  /** Respondent-group questions, in display order. */
+  profilePrompts?: ProfilePrompt[];
+  /** Re-fetches the scan response (fresh profile prompts). */
+  onRefreshPrompts?: () => Promise<void>;
 };
 
 const FeedbackForm = ({
@@ -94,6 +110,8 @@ const FeedbackForm = ({
   userInfoModes,
   reactions = [],
   reviewQuestion,
+  profilePrompts = [],
+  onRefreshPrompts,
 }: FeedbackFormProps) => {
   // The admin can override the reaction/rating prompt per QR code; an empty or
   // whitespace-only value means "use the default question".
@@ -143,6 +161,9 @@ const FeedbackForm = ({
   const [demographics, setDemographics] = useState<DemographicsValue>(
     initialSubmission?.demographics ?? emptyDemographics,
   );
+  const [profile, setProfile] = useState<Record<string, string>>(
+    initialSubmission?.profile ?? {},
+  );
   const [products, setProducts] = useState<ScanQrProduct[]>([]);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>(
     initialSubmission?.productIds ?? [],
@@ -158,6 +179,7 @@ const FeedbackForm = ({
   const raceRef = useRef<HTMLDivElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const consentRef = useRef<HTMLDivElement>(null);
+  const profileRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const reactionRowRef = useRef<HTMLDivElement>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -287,6 +309,11 @@ const FeedbackForm = ({
     if (serviceMode === "required" && selectedProductIds.length === 0)
       e.service = "Please select at least one service.";
 
+    for (const p of profilePrompts) {
+      if (p.mode === "required" && !profile[p.field_id])
+        e[profileKey(p.field_id)] = `${p.label} is required.`;
+    }
+
     // Postal code: when filled it must be 3–12 characters of letters, digits,
     // dashes or spaces (covers postal-code formats across countries, e.g. UK
     // "SW1A 1AA" / Canada "K1A-0B1"); required only when the mode says so.
@@ -319,10 +346,11 @@ const FeedbackForm = ({
   };
 
   const focusFirstError = (errs: Record<string, string>) => {
-    const order: Array<keyof typeof refMap> = [
+    const order: Array<keyof typeof refMap | string> = [
       "reaction",
       "rating",
       "service",
+      ...profilePrompts.map((p) => profileKey(p.field_id)),
       "email",
       "age",
       "gender",
@@ -345,7 +373,18 @@ const FeedbackForm = ({
     } as const;
     const first = order.find((k) => errs[k]);
     if (!first) return;
-    const el = refMap[first]?.current as HTMLElement | null;
+    // A respondent-group prompt's ref is its wrapper — focus the selected pill,
+    // else its first pill / the dropdown button.
+    const profileEl = first.startsWith("profile:")
+      ? profileRefs.current[first.slice("profile:".length)]
+      : null;
+    const el = (
+      profileEl
+        ? (profileEl.querySelector<HTMLElement>(
+            "input:checked, input, button",
+          ) ?? profileEl)
+        : refMap[first as keyof typeof refMap]?.current
+    ) as HTMLElement | null;
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     window.setTimeout(() => {
@@ -353,6 +392,45 @@ const FeedbackForm = ({
         (el as HTMLInputElement).focus({ preventScroll: true });
       }
     }, 320);
+  };
+
+  const setProfileAnswer = (fieldId: string, optionId: string) => {
+    clearError(profileKey(fieldId));
+    setProfile((prev) => {
+      const next = { ...prev };
+      if (optionId) next[fieldId] = optionId;
+      else delete next[fieldId];
+      return next;
+    });
+  };
+
+  // Server-side safety net for the respondent-group prompts. Returns true when
+  // the response was one of the profile errors and has been handled inline.
+  const handleProfileError = async (response: any) => {
+    const code = response?.data?.error;
+    const fieldId: string | undefined = response?.data?.details?.field_id;
+    if (
+      !fieldId ||
+      (code !== REVIEW_PROFILE_REQUIRED &&
+        code !== REVIEW_PROFILE_OPTION_INVALID)
+    )
+      return false;
+
+    const label = profilePrompts.find((p) => p.field_id === fieldId)?.label;
+    let message: string =
+      response?.data?.message ??
+      (label ? `${label} is required.` : "This field is required.");
+    if (code === REVIEW_PROFILE_OPTION_INVALID) {
+      // The option was removed by the business: reload the prompts, reset this
+      // one and ask again.
+      setProfileAnswer(fieldId, "");
+      await onRefreshPrompts?.();
+      message = "That option is no longer available. Please choose again.";
+    }
+    const errs = { [profileKey(fieldId)]: message };
+    setErrors(errs);
+    focusFirstError(errs);
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -366,6 +444,7 @@ const FeedbackForm = ({
 
     setSubmitting(true);
 
+    const profilePayload = buildProfilePayload(profilePrompts, profile);
     const trimmedDescription = description.trim();
     const response: any = await submitReview({
       kind,
@@ -396,9 +475,12 @@ const FeedbackForm = ({
             ),
           }
         : {}),
+      ...(profilePayload.length ? { profile: profilePayload } : {}),
     });
 
     setSubmitting(false);
+
+    if (await handleProfileError(response)) return;
 
     if (!["200", "201"].includes(String(response?.status))) {
       toast.error(
@@ -432,6 +514,8 @@ const FeedbackForm = ({
         ethnicities,
         races,
       ),
+      profile,
+      profileAnswers: buildProfileSummary(profilePrompts, profile),
     });
 
     setSubmitted(true);
@@ -469,6 +553,10 @@ const FeedbackForm = ({
             : []
         }
         description={descriptionMode !== "off" ? description : ""}
+        profileAnswers={
+          initialSubmission?.profileAnswers ??
+          buildProfileSummary(profilePrompts, profile)
+        }
         raceAndEthnicity={
           raceMode !== "off"
             ? (initialSubmission?.raceAndEthnicity ??
@@ -671,6 +759,20 @@ const FeedbackForm = ({
           )}
         </div>
       )}
+
+      {profilePrompts.map((p) => (
+        <ProfilePromptField
+          key={p.field_id}
+          ref={(el) => {
+            profileRefs.current[p.field_id] = el;
+          }}
+          idPrefix="feedback"
+          prompt={p}
+          value={profile[p.field_id] ?? ""}
+          onChange={(v) => setProfileAnswer(p.field_id, v)}
+          error={errors[profileKey(p.field_id)]}
+        />
+      ))}
 
       {genderMode !== "off" && (
         <div className="mb-5">

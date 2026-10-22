@@ -9,7 +9,7 @@ import SkeletonReaction from "../../components/SkeletonReaction";
 import InvalidQr from "../../components/InvalidQr";
 import ScanClosed from "../../components/ScanClosed";
 import { toAbsoluteUrl } from "../../utils/Assets";
-import { getScanQr } from "../../api";
+import { getProfilePrompts, getScanQr } from "../../api";
 import {
   getSubmission,
   getQrData,
@@ -96,6 +96,16 @@ const ScanQr = () => {
     };
   }, [slug]);
 
+  // Re-fetch the scan response, e.g. after the server rejects a respondent-group
+  // option the business just removed, so the form re-renders fresh prompts.
+  const refreshScan = async () => {
+    const result = await getScanQr(slug);
+    if (result.status === "ok") {
+      setData(result.data);
+      saveQrData(slug, result.data);
+    }
+  };
+
   if (loading) return <SkeletonReaction />;
   if (closed) return <ScanClosed code={closed.code} message={closed.message} />;
   if (!data) return <InvalidQr />;
@@ -104,6 +114,7 @@ const ScanQr = () => {
   const logo = resolveSrc(vendor?.logo_url);
   const qrCodeId = data.qr_code_id ?? qr?.qr_code_id ?? qr?.id ?? "";
   const surveyId = data.survey_id ?? survey?.id ?? "";
+  const profilePrompts = getProfilePrompts(data);
   const handleSubmitted = () => {
     setSubmitted(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -152,6 +163,8 @@ const ScanQr = () => {
             questions={survey?.questions ?? []}
             userInfoModes={data.user_info_modes}
             reactions={data.reactions ?? []}
+            profilePrompts={profilePrompts}
+            onRefreshPrompts={refreshScan}
           />
         </div>
       </div>
@@ -180,6 +193,8 @@ const ScanQr = () => {
             initialSubmission={submission}
             userInfoModes={data.user_info_modes}
             reactions={data.reactions ?? []}
+            profilePrompts={profilePrompts}
+            onRefreshPrompts={refreshScan}
             reviewQuestion={qr?.review_question}
           />
         </div>
@@ -210,6 +225,8 @@ const ScanQr = () => {
           initialSubmission={submission}
           userInfoModes={data.user_info_modes}
           reactions={data.reactions ?? []}
+          profilePrompts={profilePrompts}
+          onRefreshPrompts={refreshScan}
           reviewQuestion={qr?.review_question}
         />
       </div>

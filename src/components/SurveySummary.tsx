@@ -28,6 +28,8 @@ type SurveySummaryProps = {
   gender?: string;
   postalCode?: string;
   description?: string;
+  // Respondent-group answers ("Department: HR"), resolved at submit time.
+  profileAnswers?: { label: string; value: string }[];
   raceAndEthnicity?: RaceAndEthnicityPayload;
 };
 
@@ -72,6 +74,7 @@ const SurveySummary = ({
   gender,
   postalCode,
   description,
+  profileAnswers,
   raceAndEthnicity,
 }: SurveySummaryProps) => {
   const reactionByType = new Map(reactions.map((r) => [r.type, r]));
@@ -121,12 +124,28 @@ const SurveySummary = ({
         );
       })}
 
-      {(email ||
+      {(profileAnswers?.length ||
+        email ||
         age ||
         gender ||
         postalCode ||
         description ||
         hasRaceAndEthnicity(raceAndEthnicity)) && <SectionDivider />}
+
+      {profileAnswers?.map((a) => (
+        <div key={a.label} className="mb-4">
+          <div className="flex items-center gap-2 font-semibold mb-1">
+            <SmartImage
+              wrapperClassName="block w-[18px] h-[18px] shrink-0"
+              className="w-full h-full"
+              src={toAbsoluteUrl("media/icons/filter-mail-edit.svg")}
+              alt={a.label}
+            />
+            <span className="break-words">{a.label}:</span>
+          </div>
+          <p className="text-[14px] text-muted break-words">{a.value}</p>
+        </div>
+      ))}
 
       {email && (
         <div className="mb-4">

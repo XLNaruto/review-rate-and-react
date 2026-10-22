@@ -17,6 +17,8 @@ type FeedbackSummaryProps = {
   postalCode?: string;
   services?: string[];
   description?: string;
+  // Respondent-group answers ("Department: HR"), resolved at submit time.
+  profileAnswers?: { label: string; value: string }[];
   raceAndEthnicity?: RaceAndEthnicityPayload;
 };
 
@@ -32,6 +34,7 @@ const FeedbackSummary = ({
   postalCode,
   services,
   description,
+  profileAnswers,
   raceAndEthnicity,
 }: FeedbackSummaryProps) => {
   return (
@@ -78,6 +81,21 @@ const FeedbackSummary = ({
           </div>
         </div>
       )}
+
+      {profileAnswers?.map((a) => (
+        <div key={a.label} className="mb-5">
+          <div className="flex items-center gap-2 font-semibold mb-1">
+            <SmartImage
+              wrapperClassName="block w-[18px] h-[18px] shrink-0"
+              className="w-full h-full"
+              src={toAbsoluteUrl("media/icons/filter-mail-edit.svg")}
+              alt={a.label}
+            />
+            <span className="break-words">{a.label}:</span>
+          </div>
+          <p className="text-[14px] text-muted break-words">{a.value}</p>
+        </div>
+      ))}
 
       {email && (
         <div className="mb-5">

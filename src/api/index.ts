@@ -69,6 +69,54 @@ export type ScanQrProduct = {
   image?: string | null;
 };
 
+// A "respondent group" question (e.g. Department / Shift) the business asks on
+// this QR or survey, delivered inline with the scan-qr payload
+// (`data.profile_prompts`) in the order it should be shown. Labels are
+// business-defined free text — render them as-is. Fixed groups are applied
+// server-side and never appear here.
+export interface ProfilePrompt {
+  field_id: string;
+  label: string;
+  mode: "optional" | "required";
+  options: { id: string; label: string }[];
+}
+
+// One answered group question on submit — the chosen option of a single field.
+export type ProfileAnswer = { field_id: string; option_id: string };
+
+// Read `profile_prompts` off a scan-qr payload. Older cached payloads predate
+// the field, so anything that isn't a list of prompts with options becomes [].
+export const getProfilePrompts = (data: any): ProfilePrompt[] =>
+  Array.isArray(data?.profile_prompts)
+    ? (data.profile_prompts as ProfilePrompt[]).filter(
+        (p) => p?.field_id && Array.isArray(p.options) && p.options.length > 0,
+      )
+    : [];
+
+// Map form state (field_id → option_id) to the submit `profile` array: answered
+// prompts only, in prompt order, and only options the prompt still offers.
+export const buildProfilePayload = (
+  prompts: ProfilePrompt[],
+  values: Record<string, string>,
+): ProfileAnswer[] =>
+  prompts.flatMap((p) => {
+    const optionId = values[p.field_id];
+    return optionId && p.options.some((o) => o.id === optionId)
+      ? [{ field_id: p.field_id, option_id: optionId }]
+      : [];
+  });
+
+// Resolved "Label: Option" pairs for the thank-you summary, captured at submit
+// time so a restored summary doesn't depend on the live prompt list.
+export const buildProfileSummary = (
+  prompts: ProfilePrompt[],
+  values: Record<string, string>,
+): { label: string; value: string }[] =>
+  prompts.flatMap((p) => {
+    const opt = p.options.find((o) => o.id === values[p.field_id]);
+    return opt ? [{ label: p.label, value: opt.label }] : [];
+  });
+
 // GET /public/scan-qr/{slug}/products  — the services a customer can pick from
 // on a business QR. Returns [] on any non-200 so the caller can render the rest
 // of the form regardless (the field just shows no options).
@@ -135,6 +183,8 @@ export type QrReviewPayload = {
   // IDs of the business services the customer selected (business QR only).
   product_ids?: string[];
   race_and_ethnicity?: RaceAndEthnicityPayload;
+  // Answered respondent-group questions (omit unanswered optional ones).
+  profile?: ProfileAnswer[];
 };
 
 // per-question answer inside a survey submission
@@ -163,10 +213,18 @@ export type SurveyReviewPayload = {
   age?: number;
   postal_code?: string;
   race_and_ethnicity?: RaceAndEthnicityPayload;
+  // Answered respondent-group questions (omit unanswered optional ones).
+  profile?: ProfileAnswer[];
   answers: SurveyAnswer[];
 };
 
 export type ReviewPayload = QrReviewPayload | SurveyReviewPayload;
+
+// 400 error codes for the `profile` array. REQUIRED: a required prompt wasn't
+// answered; OPTION_INVALID: the option was removed — re-fetch and ask again.
+// Both carry `details.field_id`.
+export const REVIEW_PROFILE_REQUIRED = "REVIEW_PROFILE_REQUIRED";
+export const REVIEW_PROFILE_OPTION_INVALID = "REVIEW_PROFILE_OPTION_INVALID";
 
 export const submitReview = async (payload: ReviewPayload) => {
   const response: any = await postData(
