@@ -138,7 +138,11 @@ const FeedbackSummary = ({
             />
             Gender:
           </div>
-          <p className="text-[14px] text-muted capitalize">{gender}</p>
+          {gender === "prefer_not_to_say" ? (
+            <p className="text-[14px] text-muted">Prefer not to say</p>
+          ) : (
+            <p className="text-[14px] text-muted capitalize">{gender}</p>
+          )}
         </div>
       )}
   
