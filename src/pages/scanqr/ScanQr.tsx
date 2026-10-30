@@ -9,7 +9,12 @@ import SkeletonReaction from "../../components/SkeletonReaction";
 import InvalidQr from "../../components/InvalidQr";
 import ScanClosed from "../../components/ScanClosed";
 import { toAbsoluteUrl } from "../../utils/Assets";
-import { getProfilePrompts, getScanQr } from "../../api";
+import {
+  getEthnicityOptions,
+  getProfilePrompts,
+  getScanQr,
+  getUserInfoModes,
+} from "../../api";
 import {
   getSubmission,
   getQrData,
@@ -115,6 +120,8 @@ const ScanQr = () => {
   const qrCodeId = data.qr_code_id ?? qr?.qr_code_id ?? qr?.id ?? "";
   const surveyId = data.survey_id ?? survey?.id ?? "";
   const profilePrompts = getProfilePrompts(data);
+  const userInfoModes = getUserInfoModes(data);
+  const ethnicityOptions = getEthnicityOptions(data);
   const handleSubmitted = () => {
     setSubmitted(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -161,7 +168,8 @@ const ScanQr = () => {
             title={survey?.title}
             initialSubmission={submission}
             questions={survey?.questions ?? []}
-            userInfoModes={data.user_info_modes}
+            userInfoModes={userInfoModes}
+            ethnicityOptions={ethnicityOptions}
             reactions={data.reactions ?? []}
             profilePrompts={profilePrompts}
             onRefreshPrompts={refreshScan}
@@ -191,7 +199,8 @@ const ScanQr = () => {
             qrCodeId={qrCodeId}
             slug={slug}
             initialSubmission={submission}
-            userInfoModes={data.user_info_modes}
+            userInfoModes={userInfoModes}
+            ethnicityOptions={ethnicityOptions}
             reactions={data.reactions ?? []}
             profilePrompts={profilePrompts}
             onRefreshPrompts={refreshScan}
@@ -223,7 +232,8 @@ const ScanQr = () => {
           qrCodeId={qrCodeId}
           slug={slug}
           initialSubmission={submission}
-          userInfoModes={data.user_info_modes}
+          userInfoModes={userInfoModes}
+          ethnicityOptions={ethnicityOptions}
           reactions={data.reactions ?? []}
           profilePrompts={profilePrompts}
           onRefreshPrompts={refreshScan}

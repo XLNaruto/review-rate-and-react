@@ -117,6 +117,45 @@ export const buildProfileSummary = (
     return opt ? [{ label: p.label, value: opt.label }] : [];
   });
 
+// One answer of the separate Ethnicity question, from the scan-qr payload's
+// `about_you.options.ethnicity`. `value` is what's sent on submit; `label` is
+// display-only (never hardcoded on our side).
+export type EthnicityOption = { value: string; label: string };
+
+export const getEthnicityOptions = (data: any): EthnicityOption[] => {
+  const list = data?.about_you?.options?.ethnicity;
+  return Array.isArray(list)
+    ? (list as EthnicityOption[]).filter((o) => o?.value && o?.label)
+    : [];
+};
+
+// The per-prompt modes. Most live under `user_info_modes`; ethnicity_mode and
+// race_mode may also come top-level on the scan response, so fall back to those.
+export const getUserInfoModes = (data: any) => ({
+  ...data?.user_info_modes,
+  ethnicity_mode:
+    data?.user_info_modes?.ethnicity_mode ?? data?.ethnicity_mode,
+  race_mode: data?.user_info_modes?.race_mode ?? data?.race_mode,
+});
+
+// Race & Ethnicity picker category id (GET /public/ethnicity) → Ethnicity
+// question value. The backend uses the same mapping.
+const PICKER_TO_ETHNICITY: Record<number, string> = {
+  1: "hispanic_or_latino",
+  6: "not_hispanic_or_latino",
+};
+
+// The Ethnicity answer implied by the picker's ethnicity, when the question
+// offers it; "" otherwise.
+export const ethnicityFromPicker = (
+  pickerEthnicityId: number | null | undefined,
+  options: EthnicityOption[],
+): string => {
+  const value =
+    pickerEthnicityId != null ? PICKER_TO_ETHNICITY[pickerEthnicityId] : "";
+  return value && options.some((o) => o.value === value) ? value : "";
+};
+
 // GET /public/scan-qr/{slug}/products  — the services a customer can pick from
 // on a business QR. Returns [] on any non-200 so the caller can render the rest
 // of the form regardless (the field just shows no options).
@@ -179,9 +218,13 @@ export type QrReviewPayload = {
   email?: string;
   gender?: string;
   age?: number;
+  // Sent instead of `age` when the reviewer picks "Prefer not to say".
+  age_prefer_not_to_say?: boolean;
   postal_code?: string;
   // IDs of the business services the customer selected (business QR only).
   product_ids?: string[];
+  // Answer value of the separate Ethnicity question (ethnicity_mode).
+  ethnicity?: string;
   race_and_ethnicity?: RaceAndEthnicityPayload;
   // Answered respondent-group questions (omit unanswered optional ones).
   profile?: ProfileAnswer[];
@@ -211,7 +254,11 @@ export type SurveyReviewPayload = {
   email?: string;
   gender?: string;
   age?: number;
+  // Sent instead of `age` when the reviewer picks "Prefer not to say".
+  age_prefer_not_to_say?: boolean;
   postal_code?: string;
+  // Answer value of the separate Ethnicity question (ethnicity_mode).
+  ethnicity?: string;
   race_and_ethnicity?: RaceAndEthnicityPayload;
   // Answered respondent-group questions (omit unanswered optional ones).
   profile?: ProfileAnswer[];
@@ -225,6 +272,21 @@ export type ReviewPayload = QrReviewPayload | SurveyReviewPayload;
 // Both carry `details.field_id`.
 export const REVIEW_PROFILE_REQUIRED = "REVIEW_PROFILE_REQUIRED";
 export const REVIEW_PROFILE_OPTION_INVALID = "REVIEW_PROFILE_OPTION_INVALID";
+
+// 400 when a required "about you" prompt (email, age, gender, postal code,
+// ethnicity, race) is missing. `details.field` names the body field.
+export const REVIEW_PII_REQUIRED = "REVIEW_PII_REQUIRED";
+
+// Body field → the forms' error key, for showing a REVIEW_PII_REQUIRED inline.
+export const PII_FIELD_ERROR_KEYS: Record<string, string> = {
+  email: "email",
+  age: "age",
+  gender: "gender",
+  postal_code: "postalCode",
+  ethnicity: "ethnicity",
+  race_and_ethnicity: "race",
+  description: "description",
+};
 
 export const submitReview = async (payload: ReviewPayload) => {
   const response: any = await postData(

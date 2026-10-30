@@ -9,8 +9,12 @@ import {
   submitReview,
   buildProfilePayload,
   buildProfileSummary,
+  ethnicityFromPicker,
+  PII_FIELD_ERROR_KEYS,
+  REVIEW_PII_REQUIRED,
   REVIEW_PROFILE_OPTION_INVALID,
   REVIEW_PROFILE_REQUIRED,
+  type EthnicityOption,
   type ProfilePrompt,
   type SurveyAnswer,
   type ScanQrReaction,
@@ -39,6 +43,7 @@ type UserInfoModes = {
   age_mode?: FieldMode | string;
   gender_mode?: FieldMode | string;
   postal_code_mode?: FieldMode | string;
+  ethnicity_mode?: FieldMode | string;
   race_mode?: FieldMode | string;
   description_mode?: FieldMode | string;
 };
@@ -56,8 +61,12 @@ type SurveySubmission = {
   rrAnswers: Record<string, SurveyRateReactValue>;
   email: string;
   age: string;
+  agePreferNotToSay?: boolean;
   gender: string;
   postalCode: string;
+  // Ethnicity question answer (value) and its label at submit time.
+  ethnicity?: string;
+  ethnicityLabel?: string;
   description: string;
   demographics?: DemographicsValue;
   // Resolved names captured at submit time so the restored summary renders
@@ -79,6 +88,8 @@ type SurveyFormProps = {
   initialSubmission?: SurveySubmission | null;
   questions: SurveyQuestion[];
   userInfoModes?: UserInfoModes;
+  /** Answers for the separate Ethnicity question (`about_you.options.ethnicity`). */
+  ethnicityOptions?: EthnicityOption[];
   reactions?: ScanQrReaction[];
   /** Respondent-group questions, in display order. */
   profilePrompts?: ProfilePrompt[];
@@ -118,6 +129,7 @@ const SurveyForm = ({
   initialSubmission,
   questions,
   userInfoModes,
+  ethnicityOptions = [],
   reactions = [],
   profilePrompts = [],
   onRefreshPrompts,
@@ -129,6 +141,11 @@ const SurveyForm = ({
   // existed, so default to "optional" (visible, not enforced) when absent.
   const postalMode = (userInfoModes?.postal_code_mode as FieldMode) ?? "optional";
   const raceMode = (userInfoModes?.race_mode as FieldMode) ?? "optional";
+  // The Ethnicity question is new, so it stays hidden when the mode is absent —
+  // and when there are no answers to offer.
+  const ethnicityMode: FieldMode = ethnicityOptions.length
+    ? ((userInfoModes?.ethnicity_mode as FieldMode) ?? "off")
+    : "off";
   const descriptionMode =
     (userInfoModes?.description_mode as FieldMode) ?? "off";
   // Ethnicity/race reference data — used to resolve ids→names for the payload.
@@ -146,9 +163,15 @@ const SurveyForm = ({
   );
   const [email, setEmail] = useState(initialSubmission?.email ?? "");
   const [age, setAge] = useState(initialSubmission?.age ?? "");
+  const [agePreferNotToSay, setAgePreferNotToSay] = useState(
+    initialSubmission?.agePreferNotToSay ?? false
+  );
   const [gender, setGender] = useState(initialSubmission?.gender ?? "");
   const [postalCode, setPostalCode] = useState(
     initialSubmission?.postalCode ?? ""
+  );
+  const [ethnicity, setEthnicity] = useState(
+    initialSubmission?.ethnicity ?? ""
   );
   const [description, setDescription] = useState(
     initialSubmission?.description ?? ""
@@ -170,6 +193,7 @@ const SurveyForm = ({
   const ageRef = useRef<HTMLInputElement>(null);
   const genderRef = useRef<HTMLButtonElement>(null);
   const postalCodeRef = useRef<HTMLInputElement>(null);
+  const ethnicityRef = useRef<HTMLDivElement>(null);
   const raceRef = useRef<HTMLDivElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const consentRef = useRef<HTMLDivElement>(null);
@@ -243,6 +267,19 @@ const SurveyForm = ({
     return { type: "reaction", value: rrAnswers[q.id]?.reaction ?? null };
   };
 
+  // The Ethnicity answer to send: the question's own answer, else the one the
+  // reviewer already gave in the Race & Ethnicity picker (no asking twice).
+  const effectiveEthnicity =
+    ethnicityMode === "off"
+      ? ""
+      : ethnicity ||
+        (raceMode !== "off"
+          ? ethnicityFromPicker(demographics.ethnicityCategoryId, ethnicityOptions)
+          : "");
+  const ethnicityLabel = ethnicityOptions.find(
+    (o) => o.value === effectiveEthnicity
+  )?.label;
+
   const validate = () => {
     const e: Record<string, string> = {};
 
@@ -277,9 +314,9 @@ const SurveyForm = ({
     )
       e.email = "Enter a valid email address.";
 
-    if (ageMode === "required" && age.trim() === "")
+    if (ageMode === "required" && !agePreferNotToSay && age.trim() === "")
       e.age = "Age is required.";
-    else if (ageMode !== "off" && age.trim() !== "") {
+    else if (ageMode !== "off" && !agePreferNotToSay && age.trim() !== "") {
       const n = Number(age);
       if (!/^\d+$/.test(age) || !Number.isInteger(n) || n < 1 || n > 120)
         e.age = "Enter a valid age.";
@@ -299,6 +336,10 @@ const SurveyForm = ({
       !/^[A-Za-z0-9\- ]{3,12}$/.test(postalCode.trim())
     )
       e.postalCode = "Enter a valid postal code (3–12 characters).";
+
+    // "Prefer not to say" is one of the options, so it counts as an answer.
+    if (ethnicityMode === "required" && !effectiveEthnicity)
+      e.ethnicity = "Ethnicity is required.";
 
     // Ethnicity/race: when required, every level that has options must be
     // filled — ethnicity (+ its sub-ethnicities), race(s) (+ their sub-races).
@@ -325,6 +366,13 @@ const SurveyForm = ({
       if (key === "age") return ageRef.current;
       if (key === "gender") return genderRef.current;
       if (key === "postalCode") return postalCodeRef.current;
+      // Ethnicity's ref is its wrapper — focus the selected/first pill.
+      if (key === "ethnicity")
+        return (
+          ethnicityRef.current?.querySelector<HTMLElement>(
+            "input:checked, input, button"
+          ) ?? ethnicityRef.current
+        );
       if (key === "race") return raceRef.current;
       if (key === "description") return descriptionRef.current;
       if (key === "consent") return consentRef.current;
@@ -347,6 +395,7 @@ const SurveyForm = ({
       "age",
       "gender",
       "postalCode",
+      "ethnicity",
       "race",
       "description",
       "consent",
@@ -379,6 +428,29 @@ const SurveyForm = ({
       message = "That option is no longer available. Please choose again.";
     }
     const errs = { [profileKey(fieldId)]: message };
+    setErrors(errs);
+    focusFirstError(errs);
+    return true;
+  };
+
+  // Server-side safety net for the "about you" prompts: show a
+  // REVIEW_PII_REQUIRED next to its field. Returns true when handled inline.
+  const handlePiiError = (response: any) => {
+    if (response?.data?.error !== REVIEW_PII_REQUIRED) return false;
+    const key = PII_FIELD_ERROR_KEYS[response?.data?.details?.field];
+    const shown: Record<string, boolean> = {
+      email: emailMode !== "off",
+      age: ageMode !== "off",
+      gender: genderMode !== "off",
+      postalCode: postalMode !== "off",
+      ethnicity: ethnicityMode !== "off",
+      race: raceMode !== "off",
+      description: descriptionMode !== "off",
+    };
+    if (!key || !shown[key]) return false;
+    const errs = {
+      [key]: response?.data?.message ?? "This field is required.",
+    };
     setErrors(errs);
     focusFirstError(errs);
     return true;
@@ -420,10 +492,15 @@ const SurveyForm = ({
         : {}),
       ...(emailMode !== "off" && email.trim() ? { email: email.trim() } : {}),
       ...(genderMode !== "off" && gender.trim() ? { gender: gender.trim() } : {}),
-      ...(ageMode !== "off" && age.trim() ? { age: Number(age) } : {}),
+      ...(ageMode !== "off" && agePreferNotToSay
+        ? { age_prefer_not_to_say: true }
+        : ageMode !== "off" && age.trim()
+          ? { age: Number(age) }
+          : {}),
       ...(postalMode !== "off" && postalCode.trim()
         ? { postal_code: postalCode.trim() }
         : {}),
+      ...(effectiveEthnicity ? { ethnicity: effectiveEthnicity } : {}),
       ...(raceMode !== "off" &&
       buildRaceAndEthnicityPayload(demographics, ethnicities, races)
         ? {
@@ -439,6 +516,7 @@ const SurveyForm = ({
     setSubmitting(false);
 
     if (await handleProfileError(response)) return;
+    if (handlePiiError(response)) return;
 
     if (!["200", "201"].includes(String(response?.status))) {
       toast.error(
@@ -452,8 +530,11 @@ const SurveyForm = ({
       rrAnswers,
       email,
       age,
+      agePreferNotToSay,
       gender,
       postalCode,
+      ethnicity: effectiveEthnicity,
+      ethnicityLabel,
       description,
       demographics,
       // Persist resolved names too, so the restored summary needs no lookup.
@@ -478,14 +559,25 @@ const SurveyForm = ({
         rrAnswers={rrAnswers}
         reactions={reactions}
         email={emailMode !== "off" ? email : ""}
-        age={ageMode !== "off" ? age : ""}
+        age={
+          ageMode === "off" ? "" : agePreferNotToSay ? "Prefer not to say" : age
+        }
         gender={genderMode !== "off" ? gender : ""}
         postalCode={postalMode !== "off" ? postalCode : ""}
         description={descriptionMode !== "off" ? description : ""}
-        profileAnswers={
-          initialSubmission?.profileAnswers ??
-          buildProfileSummary(profilePrompts, profile)
-        }
+        profileAnswers={[
+          ...(initialSubmission?.profileAnswers ??
+            buildProfileSummary(profilePrompts, profile)),
+          ...((initialSubmission?.ethnicityLabel ?? ethnicityLabel)
+            ? [
+                {
+                  label: "Ethnicity",
+                  value: (initialSubmission?.ethnicityLabel ??
+                    ethnicityLabel) as string,
+                },
+              ]
+            : []),
+        ]}
         raceAndEthnicity={
           raceMode !== "off"
             ? (initialSubmission?.raceAndEthnicity ??
@@ -643,6 +735,28 @@ const SurveyForm = ({
         </div>
       )}
 
+      {ethnicityMode !== "off" && (
+        <ProfilePromptField
+          ref={ethnicityRef}
+          idPrefix="survey"
+          prompt={{
+            field_id: "ethnicity",
+            label: "Ethnicity",
+            mode: ethnicityMode,
+            options: ethnicityOptions.map((o) => ({
+              id: o.value,
+              label: o.label,
+            })),
+          }}
+          value={effectiveEthnicity}
+          onChange={(v) => {
+            clearError("ethnicity");
+            setEthnicity(v);
+          }}
+          error={errors.ethnicity}
+        />
+      )}
+
       {raceMode !== "off" && (
         <div ref={raceRef}>
           <EthnicityRaceFields
@@ -652,6 +766,9 @@ const SurveyForm = ({
             value={demographics}
             onChange={(v) => {
               clearError("race");
+              // A picker ethnicity fills the Ethnicity question too.
+              if (ethnicityFromPicker(v.ethnicityCategoryId, ethnicityOptions))
+                clearError("ethnicity");
               setDemographics(v);
             }}
           />
@@ -701,12 +818,26 @@ const SurveyForm = ({
             maxLength={3}
             placeholder="e.g. 28"
             value={age}
+            disabled={agePreferNotToSay}
             onChange={(e) => {
               clearError("age");
               setAge(e.target.value.replace(/\D/g, "").slice(0, 3));
             }}
-            className={`field-input ${errors.age ? "border-red-500" : ""}`}
+            className={`field-input disabled:opacity-60 ${errors.age ? "border-red-500" : ""}`}
           />
+          <label className="mt-2 flex items-center gap-2 text-[13px] text-placeholder cursor-pointer">
+            <input
+              type="checkbox"
+              checked={agePreferNotToSay}
+              onChange={(e) => {
+                clearError("age");
+                setAgePreferNotToSay(e.target.checked);
+                if (e.target.checked) setAge("");
+              }}
+              className="h-4 w-4 accent-black cursor-pointer"
+            />
+            Prefer not to say
+          </label>
           {errors.age && (
             <p className="mt-1.5 text-xs text-red-500">{errors.age}</p>
           )}
