@@ -175,8 +175,11 @@ jobs:
             --exclude "assets/*" \
             --cache-control "no-cache"
 
-      - name: Invalidate CloudFront cache for index
+      # Invalidate every path, not just /index.html: each /<slug> page is a
+      # separately cached SEO-rendered copy of index.html that still points at
+      # the previous build's entry script. "/*" counts as a single path.
+      - name: Invalidate CloudFront cache
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.outputs.outputs.distribution }}" \
-            --paths "/index.html" "/"
+            --paths "/*"
