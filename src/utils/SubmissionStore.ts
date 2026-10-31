@@ -197,3 +197,38 @@ export const getQrData = async (slug: string): Promise<any | null> => {
     return null;
   }
 };
+
+// Why a QR was last closed to responses (the API's 403), stored on the same
+// cache record so a refresh paints <ScanClosed/> straight away instead of
+// flashing the cached form first. saveQrData() rewrites the record without it,
+// so a 200 clears it automatically.
+export type QrClosed = { code: string; message: string };
+
+export const saveQrClosed = async (
+  slug: string,
+  closed: QrClosed
+): Promise<void> => {
+  if (!slug) return;
+  try {
+    const rec = await tx<any>(QR_STORE, "readonly", (s) => s.get(slug));
+    await tx(QR_STORE, "readwrite", (s) =>
+      s.put({ ...(rec ?? {}), slug, closed, savedAt: Date.now() })
+    );
+  } catch {
+    /* ignore */
+  }
+};
+
+export const getQrClosed = async (slug: string): Promise<QrClosed | null> => {
+  if (!slug) return null;
+  try {
+    const rec = await tx<{ closed?: QrClosed } | undefined>(
+      QR_STORE,
+      "readonly",
+      (s) => s.get(slug)
+    );
+    return rec?.closed ?? null;
+  } catch {
+    return null;
+  }
+};

@@ -18,7 +18,9 @@ import {
 import {
   getSubmission,
   getQrData,
+  getQrClosed,
   saveQrData,
+  saveQrClosed,
   removeQrData,
 } from "../../utils/SubmissionStore";
 import { isRateLimited } from "../../utils/RateLimit";
@@ -53,12 +55,18 @@ const ScanQr = () => {
       //    data and the user's submission, render right away — no skeleton.
       //    The leading await also keeps every setState below off the effect's
       //    synchronous path (react-hooks/set-state-in-effect).
-      const [cached, saved] = await Promise.all([
+      const [cached, saved, cachedClosed] = await Promise.all([
         slug ? getQrData(slug) : Promise.resolve(null),
         slug ? getSubmission(slug) : Promise.resolve(null),
+        slug ? getQrClosed(slug) : Promise.resolve(null),
       ]);
       if (cancelled) return;
-      if (cached) {
+      if (cachedClosed) {
+        // Last answer was a 403: paint the closed screen, not the cached form,
+        // so it doesn't flash before the revalidation below confirms it.
+        setClosed(cachedClosed);
+        setLoading(false);
+      } else if (cached) {
         setData(cached);
         if (saved) {
           setSubmission(saved.payload);
@@ -74,22 +82,27 @@ const ScanQr = () => {
       const result = slug && !isRateLimited() ? await getScanQr(slug) : null;
       if (cancelled) return;
       if (result?.status === "ok") {
+        setClosed(null);
         setData(result.data);
         saveQrData(slug, result.data);
-        if (!cached && saved) {
+        if ((!cached || cachedClosed) && saved) {
           setSubmission(saved.payload);
           setSubmitted(true);
         }
       } else if (result?.status === "closed") {
         // Valid slug, but responses are off. Keep the cached page in IndexedDB
         // (it's still the right page once the business reopens) and show the
-        // reason the API gave us instead of the form.
-        setClosed({ code: result.code, message: result.message });
+        // reason the API gave us instead of the form. Remember it so the next
+        // refresh opens on this screen rather than flashing the form.
+        const next = { code: result.code, message: result.message };
+        setClosed(next);
+        saveQrClosed(slug, next);
       } else if (result?.status === "not_found") {
         // The QR is genuinely gone: drop the stale cache so it can't keep
         // painting on later refreshes, and fall through to <InvalidQr/>.
         await removeQrData(slug);
         if (cancelled) return;
+        setClosed(null);
         setData(null);
       }
       // "rate_limited" / "error" / skipped: keep whatever we already have
