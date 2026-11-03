@@ -5,6 +5,34 @@
     <link rel="icon" type="image/svg+xml" href="/media/logos/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Rate + React AI</title>
+    <script>
+      // A stale index.html (browser or CDN cache) can point at an entry bundle a
+      // later deploy replaced. The CDN answers missing files with index.html, so
+      // the browser rejects it ("MIME type text/html"). main.tsx never runs in
+      // that case, so its vite:preloadError handler can't help; this inline
+      // guard runs first and reloads once to fetch the current index.html.
+      (function () {
+        var KEY = "entry-reload-at";
+        window.addEventListener(
+          "error",
+          function (e) {
+            var t = e.target;
+            if (!t || (t.tagName !== "SCRIPT" && t.tagName !== "LINK")) return;
+            var url = t.src || t.href || "";
+            if (url.indexOf("/assets/") === -1) return;
+            try {
+              var last = Number(sessionStorage.getItem(KEY) || 0);
+              if (Date.now() - last < 10000) return;
+              sessionStorage.setItem(KEY, String(Date.now()));
+            } catch (_) {
+              return; // storage blocked: can't guard against a reload loop
+            }
+            window.location.reload();
+          },
+          true,
+        );
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
