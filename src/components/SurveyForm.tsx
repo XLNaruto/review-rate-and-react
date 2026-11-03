@@ -1,25 +1,31 @@
 import { useRef, useState } from "react";
-import { toast } from "sonner";
 import SurveyReactionRow, { type SurveyRateReactValue } from "./SurveyReactionRow";
 import SurveySummary from "./SurveySummary";
 import SelectDropdown from "./SelectDropdown";
 import EthnicityRaceFields from "./EthnicityRaceFields";
 import ProfilePromptField from "./ProfilePromptField";
+import AboutYouSection from "./AboutYouSection";
 import {
   submitReview,
   buildProfilePayload,
   buildProfileSummary,
   ethnicityFromPicker,
   PII_FIELD_ERROR_KEYS,
+  REVIEW_ANSWER_REACTION_REQUIRED,
+  REVIEW_DESCRIPTION_REQUIRED,
   REVIEW_PII_REQUIRED,
   REVIEW_PROFILE_OPTION_INVALID,
   REVIEW_PROFILE_REQUIRED,
+  type AboutYou,
+  type BlockedState,
   type EthnicityOption,
+  type GenderOption,
   type ProfilePrompt,
   type SurveyAnswer,
   type ScanQrReaction,
 } from "../api";
 import { saveSubmission } from "../utils/SubmissionStore";
+import { handleSubmitError } from "../utils/submitErrors";
 import { useDemographicsData } from "../hooks/useDemographicsData";
 import {
   buildRaceAndEthnicityPayload,
@@ -29,12 +35,11 @@ import {
   type RaceAndEthnicityPayload,
 } from "../data/demographics";
 
-const GENDER_OPTIONS = [
-  { label: "Male", value: "male" },
-  { label: "Female", value: "female" },
-  { label: "Prefer not to say", value: "prefer_not_to_say" },
-  { label: "Other", value: "other" },
-];
+// Server limits (spec §3.4 / §4.1).
+const TEXT_MAX = 2000;
+const EMAIL_MAX = 254;
+// completion_ms is accepted in 0 – 86,400,000 (one day).
+const COMPLETION_MS_MAX = 86_400_000;
 
 type FieldMode = "off" | "optional" | "required";
 
@@ -52,8 +57,11 @@ export type SurveyQuestion = {
   id: string;
   position?: number;
   text: string;
-  type: "reaction" | "rating_1_5" | "multiple_choice" | string;
+  type: "reaction" | "rating_1_5" | "multiple_choice" | "open_text" | string;
   options?: string[] | null;
+  // "trivia" questions are styled as trivia (not scored); anything else is a
+  // survey question.
+  pool?: "survey" | "trivia" | string | null;
 };
 
 type SurveySubmission = {
@@ -84,9 +92,18 @@ type SurveyFormProps = {
   onSubmitted?: () => void;
   surveyId: string;
   slug: string;
-  title?: string;
   initialSubmission?: SurveySubmission | null;
   questions: SurveyQuestion[];
+  /** Older surveys: every question carries an emoji + 1–5 points. */
+  reactionOnAllQuestions?: boolean;
+  /** Cadence (kiosk) survey: `questions` holds only today's question. */
+  isCadence?: boolean;
+  /** `about_you` settings (wording, anonymity notice, fixed note). */
+  aboutYou: AboutYou;
+  /** Gender answers (`about_you.options.gender`). */
+  genderOptions: GenderOption[];
+  /** Switch the page to a state screen after a submit says so. */
+  onBlocked?: (state: BlockedState) => void;
   userInfoModes?: UserInfoModes;
   /** Answers for the separate Ethnicity question (`about_you.options.ethnicity`). */
   ethnicityOptions?: EthnicityOption[];
@@ -99,25 +116,63 @@ type SurveyFormProps = {
 
 const emptyRR: SurveyRateReactValue = { reaction: null, rating: null };
 
-const msSince = (start: number) => Date.now() - start;
+const msSince = (start: number) =>
+  Math.min(COMPLETION_MS_MAX, Math.max(0, Date.now() - start));
 
-const Checkbox = ({ checked }: { checked: boolean }) => (
+// 1–5 points on their own, for older `rating_1_5` questions that don't also
+// ask for an emoji.
+const RatingScale = ({
+  name,
+  value,
+  onChange,
+  invalid,
+}: {
+  name: string;
+  value: number | null;
+  onChange: (n: number) => void;
+  invalid?: boolean;
+}) => (
+  <div
+    role="radiogroup"
+    aria-label="Rating from 1 to 5"
+    aria-invalid={invalid || undefined}
+    className="flex justify-between items-center mt-2"
+  >
+    {[1, 2, 3, 4, 5].map((n) => {
+      const checked = value === n;
+      return (
+        <label key={n} className="relative">
+          <input
+            type="radio"
+            name={name}
+            value={n}
+            checked={checked}
+            onChange={() => onChange(n)}
+            className="peer absolute inset-0 m-0 cursor-pointer opacity-0"
+          />
+          <span
+            className={`w-[40px] h-[40px] rounded-full flex items-center justify-center text-[18px] font-semibold cursor-pointer transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand/30 ${
+              checked
+                ? "bg-brand text-white"
+                : "bg-surface-soft text-black hover:bg-brand hover:text-white"
+            }`}
+          >
+            {n}
+          </span>
+        </label>
+      );
+    })}
+  </div>
+);
+
+const RadioDot = ({ checked }: { checked: boolean }) => (
   <span
-    className={`flex items-center justify-center w-6 h-6 rounded-md border-2 bg-white transition-colors ${
+    aria-hidden
+    className={`flex items-center justify-center w-6 h-6 rounded-full border-2 bg-white transition-colors ${
       checked ? "border-brand" : "border-option-text"
     }`}
   >
-    {checked && (
-      <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-brand">
-        <path
-          d="M20 6L9 17l-5-5"
-          stroke="currentColor"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    )}
+    {checked && <span className="w-3 h-3 rounded-full bg-brand" />}
   </span>
 );
 
@@ -125,9 +180,13 @@ const SurveyForm = ({
   onSubmitted,
   surveyId,
   slug,
-  title,
   initialSubmission,
   questions,
+  reactionOnAllQuestions = false,
+  isCadence = false,
+  aboutYou,
+  genderOptions,
+  onBlocked,
   userInfoModes,
   ethnicityOptions = [],
   reactions = [],
@@ -149,7 +208,25 @@ const SurveyForm = ({
   const descriptionMode =
     (userInfoModes?.description_mode as FieldMode) ?? "off";
   // Ethnicity/race reference data — used to resolve ids→names for the payload.
-  const { ethnicities, races } = useDemographicsData();
+  // Only fetched when the picker is shown (RV-16).
+  const { ethnicities, races } = useDemographicsData(raceMode !== "off");
+
+  // Emoji + points are asked on every question of an older survey, and on
+  // `reaction` questions otherwise.
+  const needsRR = (q: SurveyQuestion) =>
+    reactionOnAllQuestions || q.type === "reaction";
+
+  // The "About you" step: shown when any built-in or profile prompt is on.
+  const aboutModes = [
+    emailMode,
+    ageMode,
+    genderMode,
+    postalMode,
+    ethnicityMode,
+    raceMode,
+  ];
+  const aboutShown =
+    profilePrompts.length > 0 || aboutModes.some((m) => m !== "off");
 
   const sorted = [...(questions ?? [])].sort(
     (a, b) => (a.position ?? 0) - (b.position ?? 0)
@@ -216,19 +293,17 @@ const SurveyForm = ({
   const setRr = (id: string, v: SurveyRateReactValue) => {
     // Only clear once the rate is actually complete (both reaction AND rating);
     // a reaction-only selection is still pending, so keep the error.
-    if (v.reaction && v.rating != null) clearError(id);
+    // A rating-only question (older rating_1_5) is complete with just points.
+    const q = sorted.find((x) => x.id === id);
+    if (v.rating != null && (v.reaction || (q && !needsRR(q))))
+      clearError(id);
     setRrAnswers((prev) => ({ ...prev, [id]: v }));
   };
 
-  const toggleChoice = (id: string, opt: string) => {
+  // Multiple choice is single-select (RV-01): the answer is a one-item list.
+  const selectChoice = (id: string, opt: string) => {
     clearError(id);
-    setAnswers((prev) => {
-      const cur: string[] = Array.isArray(prev[id]) ? prev[id] : [];
-      return {
-        ...prev,
-        [id]: cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt],
-      };
-    });
+    setAnswers((prev) => ({ ...prev, [id]: [opt] }));
   };
 
   const setProfileAnswer = (fieldId: string, optionId: string) => {
@@ -258,7 +333,11 @@ const SurveyForm = ({
     }
     if (q.type === "multiple_choice") {
       const a = answers[q.id];
-      return { type: "multiple_choice", selected: Array.isArray(a) ? a : [] };
+      // Only values the question still offers, and only one of them.
+      const picked = (Array.isArray(a) ? a : []).filter((x: string) =>
+        (q.options ?? []).includes(x),
+      );
+      return { type: "multiple_choice", selected: picked.slice(0, 1) };
     }
     if (q.type === "rating_1_5") {
       return { type: "rating_1_5", value: rrAnswers[q.id]?.rating ?? null };
@@ -269,13 +348,14 @@ const SurveyForm = ({
 
   // The Ethnicity answer to send: the question's own answer, else the one the
   // reviewer already gave in the Race & Ethnicity picker (no asking twice).
-  const effectiveEthnicity =
+  const ethnicityOf = (eth: string, demo: DemographicsValue) =>
     ethnicityMode === "off"
       ? ""
-      : ethnicity ||
+      : eth ||
         (raceMode !== "off"
-          ? ethnicityFromPicker(demographics.ethnicityCategoryId, ethnicityOptions)
+          ? ethnicityFromPicker(demo.ethnicityCategoryId, ethnicityOptions)
           : "");
+  const effectiveEthnicity = ethnicityOf(ethnicity, demographics);
   const ethnicityLabel = ethnicityOptions.find(
     (o) => o.value === effectiveEthnicity
   )?.label;
@@ -294,12 +374,26 @@ const SurveyForm = ({
         const a = answers[q.id];
         if (!(typeof a === "string" && a.trim() !== ""))
           e[q.id] = "Please complete this question.";
-      } else {
-        // reaction / rating_1_5 — the rate row is the answer
-        if (!rateOk) e[q.id] = "Please rate your experience.";
+      } else if (q.type === "rating_1_5" && !needsRR(q)) {
+        if (rr?.rating == null) e[q.id] = "Please pick a rating.";
       }
+      // The emoji + points row (reaction questions, or every question of an
+      // older survey).
+      if (!e[q.id] && needsRR(q) && !rateOk)
+        e[q.id] = "Please rate your experience.";
     }
 
+    validateAbout(e);
+
+    if (descriptionMode === "required" && !description.trim())
+      e.description = "Description is required.";
+
+    if (!consent) e.consent = "Please acknowledge and consent to continue.";
+
+    return e;
+  };
+
+  const validateAbout = (e: Record<string, string>) => {
     for (const p of profilePrompts) {
       if (p.mode === "required" && !profile[p.field_id])
         e[profileKey(p.field_id)] = `${p.label} is required.`;
@@ -351,13 +445,6 @@ const SurveyForm = ({
       );
       if (raceErr) e.race = raceErr.message;
     }
-
-    if (descriptionMode === "required" && !description.trim())
-      e.description = "Description is required.";
-
-    if (!consent) e.consent = "Please acknowledge and consent to continue.";
-
-    return e;
   };
 
   const focusFirstError = (errs: Record<string, string>) => {
@@ -436,7 +523,25 @@ const SurveyForm = ({
   // Server-side safety net for the "about you" prompts: show a
   // REVIEW_PII_REQUIRED next to its field. Returns true when handled inline.
   const handlePiiError = (response: any) => {
-    if (response?.data?.error !== REVIEW_PII_REQUIRED) return false;
+    const code = response?.data?.error;
+    if (code === REVIEW_DESCRIPTION_REQUIRED && descriptionMode !== "off") {
+      const errs = { description: "Please add a description." };
+      setErrors(errs);
+      focusFirstError(errs);
+      return true;
+    }
+    if (code === REVIEW_ANSWER_REACTION_REQUIRED) {
+      const d = response?.data?.details ?? {};
+      const qid: string | undefined =
+        d.survey_question_id ?? d.question_id ?? undefined;
+      const target = sorted.find((q) => q.id === qid) ?? sorted[0];
+      if (!target) return false;
+      const errs = { [target.id]: "Please pick an emoji and points." };
+      setErrors(errs);
+      focusFirstError(errs);
+      return true;
+    }
+    if (code !== REVIEW_PII_REQUIRED) return false;
     const key = PII_FIELD_ERROR_KEYS[response?.data?.details?.field];
     const shown: Record<string, boolean> = {
       email: emailMode !== "off",
@@ -466,20 +571,41 @@ const SurveyForm = ({
 
     if (submitting) return;
 
-    // Only reaction-style questions carry top-level rating/reaction.
-    const builtAnswers: SurveyAnswer[] = sorted.map((q) =>
-      q.type === "open_text" || q.type === "multiple_choice"
-        ? { survey_question_id: q.id, answer: buildAnswer(q) }
-        : {
-            survey_question_id: q.id,
-            rating: rrAnswers[q.id]?.rating ?? null,
-            reaction: rrAnswers[q.id]?.reaction ?? null,
-            answer: buildAnswer(q),
-          }
-    );
+    const about = {
+      email,
+      age,
+      agePreferNotToSay,
+      gender,
+      postalCode,
+      ethnicity,
+      demographics,
+      profile,
+    };
+    const sendEthnicity = ethnicityOf(about.ethnicity, about.demographics);
+    const sendEthnicityLabel = ethnicityOptions.find(
+      (o) => o.value === sendEthnicity
+    )?.label;
+    const raceAndEthnicity =
+      raceMode !== "off"
+        ? buildRaceAndEthnicityPayload(about.demographics, ethnicities, races)
+        : undefined;
+
+    // rating/reaction go on an answer only where the emoji row is asked;
+    // otherwise the server drops them.
+    const builtAnswers: SurveyAnswer[] = sorted.map((q) => {
+      const rr = rrAnswers[q.id];
+      if (!needsRR(q))
+        return { survey_question_id: q.id, answer: buildAnswer(q) };
+      return {
+        survey_question_id: q.id,
+        rating: rr?.rating ?? null,
+        reaction: rr?.reaction ?? null,
+        answer: buildAnswer(q),
+      };
+    });
 
     const trimmedDescription = description.trim();
-    const profilePayload = buildProfilePayload(profilePrompts, profile);
+    const profilePayload = buildProfilePayload(profilePrompts, about.profile);
 
     setSubmitting(true);
     const response: any = await submitReview({
@@ -490,61 +616,52 @@ const SurveyForm = ({
       ...(descriptionMode !== "off" && trimmedDescription
         ? { description: trimmedDescription }
         : {}),
-      ...(emailMode !== "off" && email.trim() ? { email: email.trim() } : {}),
-      ...(genderMode !== "off" && gender.trim() ? { gender: gender.trim() } : {}),
-      ...(ageMode !== "off" && agePreferNotToSay
+      ...(emailMode !== "off" && about.email.trim()
+        ? { email: about.email.trim() }
+        : {}),
+      ...(genderMode !== "off" && about.gender.trim()
+        ? { gender: about.gender.trim() }
+        : {}),
+      ...(ageMode !== "off" && about.agePreferNotToSay
         ? { age_prefer_not_to_say: true }
-        : ageMode !== "off" && age.trim()
-          ? { age: Number(age) }
+        : ageMode !== "off" && about.age.trim()
+          ? { age: Number(about.age) }
           : {}),
-      ...(postalMode !== "off" && postalCode.trim()
-        ? { postal_code: postalCode.trim() }
+      ...(postalMode !== "off" && about.postalCode.trim()
+        ? { postal_code: about.postalCode.trim() }
         : {}),
-      ...(effectiveEthnicity ? { ethnicity: effectiveEthnicity } : {}),
-      ...(raceMode !== "off" &&
-      buildRaceAndEthnicityPayload(demographics, ethnicities, races)
-        ? {
-            race_and_ethnicity: buildRaceAndEthnicityPayload(
-              demographics,
-              ethnicities,
-              races
-            ),
-          }
-        : {}),
+      ...(sendEthnicity ? { ethnicity: sendEthnicity } : {}),
+      ...(raceAndEthnicity ? { race_and_ethnicity: raceAndEthnicity } : {}),
       ...(profilePayload.length ? { profile: profilePayload } : {}),
     });
     setSubmitting(false);
 
-    if (await handleProfileError(response)) return;
-    if (handlePiiError(response)) return;
-
     if (!["200", "201"].includes(String(response?.status))) {
-      toast.error(
-        response?.data?.message ?? "Something went wrong. Please try again."
-      );
+      if (await handleProfileError(response)) return;
+      if (handlePiiError(response)) return;
+      await handleSubmitError(response, {
+        onBlocked,
+        onRefresh: onRefreshPrompts,
+      });
       return;
     }
 
     await saveSubmission(slug, "survey", {
       answers,
       rrAnswers,
-      email,
-      age,
-      agePreferNotToSay,
-      gender,
-      postalCode,
-      ethnicity: effectiveEthnicity,
-      ethnicityLabel,
+      email: about.email,
+      age: about.age,
+      agePreferNotToSay: about.agePreferNotToSay,
+      gender: about.gender,
+      postalCode: about.postalCode,
+      ethnicity: sendEthnicity,
+      ethnicityLabel: sendEthnicityLabel,
       description,
-      demographics,
+      demographics: about.demographics,
       // Persist resolved names too, so the restored summary needs no lookup.
-      raceAndEthnicity: buildRaceAndEthnicityPayload(
-        demographics,
-        ethnicities,
-        races
-      ),
-      profile,
-      profileAnswers: buildProfileSummary(profilePrompts, profile),
+      raceAndEthnicity,
+      profile: about.profile,
+      profileAnswers: buildProfileSummary(profilePrompts, about.profile),
     });
 
     setSubmitted(true);
@@ -588,83 +705,133 @@ const SurveyForm = ({
     );
   }
 
+  // Cadence (kiosk) survey with nothing asked today.
+  if (isCadence && sorted.length === 0) {
+    return (
+      <div className="survey-card text-center animate-fade-in-up [animation-delay:320ms]">
+        <h2 className="text-[18px] font-bold mb-2">No question today</h2>
+        <p className="text-[14px] text-placeholder">
+          There's nothing to answer today. Please check back tomorrow.
+        </p>
+      </div>
+    );
+  }
+
+  const errorText = (key: string, className = "mt-1.5") =>
+    errors[key] ? (
+      <p role="alert" className={`${className} text-xs text-red-500`}>
+        {errors[key]}
+      </p>
+    ) : null;
+
   return (
     <div className="animate-fade-in-up [animation-delay:320ms]">
-      <h1 className="text-[20px] font-bold mb-4">
-        {title?.trim() || "Help us personalize your experience"}
-      </h1>
+      {sorted.map((q, idx) => {
+        const trivia = q.pool === "trivia";
+        const promptId = `survey-q-${q.id}`;
+        return (
+          <div
+            key={q.id}
+            ref={(el) => {
+              questionRefs.current[q.id] = el;
+            }}
+            className={`question-card mb-4 ${
+              errors[q.id] ? "border border-red-500" : ""
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="font-bold text-[14px]">Question {idx + 1}</p>
+              {trivia && (
+                <span className="rounded-full bg-amber-100 text-amber-800 px-2.5 py-0.5 text-[12px] font-semibold">
+                  Trivia · just for fun
+                </span>
+              )}
+            </div>
+            <p id={promptId} className="text-placeholder text-[14px] mb-4">
+              {q.text}
+              <span className="text-red-500 ml-0.5">*</span>
+            </p>
 
-      {sorted.map((q, idx) => (
-        <div
-          key={q.id}
-          ref={(el) => {
-            questionRefs.current[q.id] = el;
-          }}
-          className={`question-card mb-4 ${
-            errors[q.id] ? "border border-red-500" : ""
-          }`}
-        >
-          <p className="font-bold text-[14px] mb-2">Question {idx + 1}</p>
-          <p className="text-placeholder text-[14px] mb-4">
-            {q.text}
-            <span className="text-red-500 ml-0.5">*</span>
-          </p>
-          {errors[q.id] &&
-            q.type !== "reaction" &&
-            q.type !== "rating_1_5" && (
-              <p className="-mt-2 mb-4 text-xs text-red-500">{errors[q.id]}</p>
+            {q.type === "multiple_choice" && (
+              <div
+                role="radiogroup"
+                aria-labelledby={promptId}
+                aria-required
+                aria-invalid={errors[q.id] ? true : undefined}
+                className="space-y-2.5"
+              >
+                {(q.options ?? []).map((opt) => {
+                  const cur: string[] = Array.isArray(answers[q.id])
+                    ? answers[q.id]
+                    : [];
+                  const checked = cur[0] === opt;
+                  return (
+                    <label key={opt} className="relative block">
+                      <input
+                        type="radio"
+                        name={`survey-mc-${q.id}`}
+                        value={opt}
+                        checked={checked}
+                        onChange={() => selectChoice(q.id, opt)}
+                        className="peer absolute inset-0 m-0 cursor-pointer opacity-0"
+                      />
+                      <span
+                        className={`w-full flex items-center justify-between rounded-full bg-white px-4 py-3 cursor-pointer transition-colors border border-option-border peer-focus-visible:ring-2 peer-focus-visible:ring-brand/30 ${
+                          checked ? "text-brand" : "text-option-text"
+                        }`}
+                      >
+                        <span className="text-[14px] font-medium">{opt}</span>
+                        <RadioDot checked={checked} />
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
             )}
 
-          {(q.type === "reaction" || q.type === "rating_1_5") && (
-            <>
-              <SurveyReactionRow
-                value={rrAnswers[q.id] ?? emptyRR}
-                onChange={(v) => setRr(q.id, v)}
-                reactions={reactions}
+            {q.type === "open_text" && (
+              <textarea
+                aria-labelledby={promptId}
+                placeholder="Write…"
+                maxLength={TEXT_MAX}
+                value={typeof answers[q.id] === "string" ? answers[q.id] : ""}
+                onChange={(e) =>
+                  setAnswer(q.id, e.target.value.slice(0, TEXT_MAX))
+                }
+                className="nice-scrollbar w-full rounded-2xl bg-white border border-option-border px-4 py-3 text-sm placeholder:text-option-text outline-none resize-none h-24 transition focus:border-black focus:ring-2 focus:ring-black/10"
               />
-              {errors[q.id] && (
-                <p className="mt-3 text-xs text-red-500">{errors[q.id]}</p>
-              )}
-            </>
-          )}
+            )}
 
-          {q.type === "multiple_choice" && (
-            <div className="space-y-2.5">
-              {(q.options ?? []).map((opt) => {
-                const cur: string[] = Array.isArray(answers[q.id])
-                  ? answers[q.id]
-                  : [];
-                const checked = cur.includes(opt);
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => toggleChoice(q.id, opt)}
-                    className={`w-full flex items-center justify-between rounded-full bg-white px-4 py-3 cursor-pointer transition-colors ${
-                      checked ? "text-brand" : "text-option-text"
-                    } border border-option-border`}
-                  >
-                    <span className="text-[14px] font-medium">{opt}</span>
-                    <Checkbox checked={checked} />
-                  </button>
-                );
-              })}
-            </div>
-          )}
+            {q.type === "rating_1_5" && !needsRR(q) && (
+              <RatingScale
+                name={`survey-rating-${q.id}`}
+                value={rrAnswers[q.id]?.rating ?? null}
+                invalid={!!errors[q.id]}
+                onChange={(n) => setRr(q.id, { reaction: null, rating: n })}
+              />
+            )}
 
-          {q.type === "open_text" && (
-            <textarea
-              placeholder="Write…"
-              value={typeof answers[q.id] === "string" ? answers[q.id] : ""}
-              onChange={(e) => setAnswer(q.id, e.target.value)}
-              className="nice-scrollbar w-full rounded-2xl bg-white border border-option-border px-4 py-3 text-sm placeholder:text-option-text outline-none resize-none h-24 transition focus:border-black focus:ring-2 focus:ring-black/10"
-            />
-          )}
-        </div>
-      ))}
+            {needsRR(q) && (
+              <div
+                className={
+                  q.type === "reaction" || q.type === "rating_1_5" ? "" : "mt-4"
+                }
+              >
+                <SurveyReactionRow
+                  value={rrAnswers[q.id] ?? emptyRR}
+                  onChange={(v) => setRr(q.id, v)}
+                  reactions={reactions}
+                />
+              </div>
+            )}
 
-      {profilePrompts.length > 0 && (
-        <div className="mt-6">
+            {errorText(q.id, "mt-3")}
+          </div>
+        );
+      })}
+
+      {aboutShown && (
+        <AboutYouSection aboutYou={aboutYou}>
           {profilePrompts.map((p) => (
             <ProfilePromptField
               key={p.field_id}
@@ -678,170 +845,165 @@ const SurveyForm = ({
               error={errors[profileKey(p.field_id)]}
             />
           ))}
-        </div>
-      )}
 
-      {genderMode !== "off" && (
-        <div className={`mb-5 ${profilePrompts.length > 0 ? "" : "mt-6"}`}>
-          <label
-            className={`field-label ${genderMode === "required" ? "required" : ""}`}
-          >
-            Enter Your Gender
-          </label>
-          <SelectDropdown
-            ref={genderRef}
-            id="survey-gender"
-            value={gender}
-            onChange={(v) => {
-              clearError("gender");
-              setGender(v);
-            }}
-            options={GENDER_OPTIONS}
-            placeholder="Select your gender"
-            error={!!errors.gender}
-          />
-          {errors.gender && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.gender}</p>
+          {genderMode !== "off" && (
+            <div className="mb-5">
+              <label
+                className={`field-label ${genderMode === "required" ? "required" : ""}`}
+              >
+                Enter Your Gender
+              </label>
+              <SelectDropdown
+                ref={genderRef}
+                id="survey-gender"
+                value={gender}
+                onChange={(v) => {
+                  clearError("gender");
+                  setGender(v);
+                }}
+                options={genderOptions}
+                placeholder="Select your gender"
+                error={!!errors.gender}
+              />
+              {errorText("gender")}
+            </div>
           )}
-        </div>
-      )}
 
-      {postalMode !== "off" && (
-        <div className="mb-5">
-          <label
-            className={`field-label ${postalMode === "required" ? "required" : ""}`}
-            htmlFor="survey-postal-code"
-          >
-            Postal Code
-          </label>
-          <input
-            ref={postalCodeRef}
-            id="survey-postal-code"
-            type="text"
-            maxLength={12}
-            placeholder="e.g. 380015 or SW1A 1AA"
-            value={postalCode}
-            onChange={(e) => {
-              clearError("postalCode");
-              setPostalCode(
-                e.target.value.replace(/[^A-Za-z0-9\- ]/g, "").slice(0, 12)
-              );
-            }}
-            className={`field-input ${errors.postalCode ? "border-red-500" : ""}`}
-          />
-          {errors.postalCode && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.postalCode}</p>
+          {postalMode !== "off" && (
+            <div className="mb-5">
+              <label
+                className={`field-label ${postalMode === "required" ? "required" : ""}`}
+                htmlFor="survey-postal-code"
+              >
+                Postal Code
+              </label>
+              <input
+                ref={postalCodeRef}
+                id="survey-postal-code"
+                type="text"
+                maxLength={12}
+                placeholder="e.g. 380015 or SW1A 1AA"
+                value={postalCode}
+                onChange={(e) => {
+                  clearError("postalCode");
+                  setPostalCode(
+                    e.target.value.replace(/[^A-Za-z0-9\- ]/g, "").slice(0, 12)
+                  );
+                }}
+                className={`field-input ${errors.postalCode ? "border-red-500" : ""}`}
+              />
+              {errorText("postalCode")}
+            </div>
           )}
-        </div>
-      )}
 
-      {ethnicityMode !== "off" && (
-        <ProfilePromptField
-          ref={ethnicityRef}
-          idPrefix="survey"
-          prompt={{
-            field_id: "ethnicity",
-            label: "Ethnicity",
-            mode: ethnicityMode,
-            options: ethnicityOptions.map((o) => ({
-              id: o.value,
-              label: o.label,
-            })),
-          }}
-          value={effectiveEthnicity}
-          onChange={(v) => {
-            clearError("ethnicity");
-            setEthnicity(v);
-          }}
-          error={errors.ethnicity}
-        />
-      )}
-
-      {raceMode !== "off" && (
-        <div ref={raceRef}>
-          <EthnicityRaceFields
-            idPrefix="survey"
-            required={raceMode === "required"}
-            error={errors.race}
-            value={demographics}
-            onChange={(v) => {
-              clearError("race");
-              // A picker ethnicity fills the Ethnicity question too.
-              if (ethnicityFromPicker(v.ethnicityCategoryId, ethnicityOptions))
-                clearError("ethnicity");
-              setDemographics(v);
-            }}
-          />
-        </div>
-      )}
-
-      {emailMode !== "off" && (
-        <div className="mb-5">
-          <label
-            className={`field-label ${emailMode === "required" ? "required" : ""}`}
-            htmlFor="survey-email"
-          >
-            Enter Your Email
-          </label>
-          <input
-            ref={emailRef}
-            id="survey-email"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => {
-              clearError("email");
-              setEmail(e.target.value);
-            }}
-            className={`field-input ${errors.email ? "border-red-500" : ""}`}
-          />
-          {errors.email && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.email}</p>
-          )}
-        </div>
-      )}
-
-      {ageMode !== "off" && (
-        <div className="mb-5">
-          <label
-            className={`field-label ${ageMode === "required" ? "required" : ""}`}
-            htmlFor="survey-age"
-          >
-            Enter Your Age
-          </label>
-          <input
-            ref={ageRef}
-            id="survey-age"
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            maxLength={3}
-            placeholder="e.g. 28"
-            value={age}
-            disabled={agePreferNotToSay}
-            onChange={(e) => {
-              clearError("age");
-              setAge(e.target.value.replace(/\D/g, "").slice(0, 3));
-            }}
-            className={`field-input disabled:opacity-60 ${errors.age ? "border-red-500" : ""}`}
-          />
-          <label className="mt-2 flex items-center gap-2 text-[13px] text-placeholder cursor-pointer">
-            <input
-              type="checkbox"
-              checked={agePreferNotToSay}
-              onChange={(e) => {
-                clearError("age");
-                setAgePreferNotToSay(e.target.checked);
-                if (e.target.checked) setAge("");
+          {ethnicityMode !== "off" && (
+            <ProfilePromptField
+              ref={ethnicityRef}
+              idPrefix="survey"
+              prompt={{
+                field_id: "ethnicity",
+                label: "Ethnicity",
+                mode: ethnicityMode,
+                options: ethnicityOptions.map((o) => ({
+                  id: o.value,
+                  label: o.label,
+                })),
               }}
-              className="h-4 w-4 accent-black cursor-pointer"
+              value={effectiveEthnicity}
+              onChange={(v) => {
+                clearError("ethnicity");
+                setEthnicity(v);
+              }}
+              error={errors.ethnicity}
             />
-            Prefer not to say
-          </label>
-          {errors.age && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.age}</p>
           )}
-        </div>
+
+          {raceMode !== "off" && (
+            <div ref={raceRef}>
+              <EthnicityRaceFields
+                idPrefix="survey"
+                required={raceMode === "required"}
+                error={errors.race}
+                value={demographics}
+                onChange={(v) => {
+                  clearError("race");
+                  // A picker ethnicity fills the Ethnicity question too.
+                  if (
+                    ethnicityFromPicker(v.ethnicityCategoryId, ethnicityOptions)
+                  )
+                    clearError("ethnicity");
+                  setDemographics(v);
+                }}
+              />
+            </div>
+          )}
+
+          {emailMode !== "off" && (
+            <div className="mb-5">
+              <label
+                className={`field-label ${emailMode === "required" ? "required" : ""}`}
+                htmlFor="survey-email"
+              >
+                Enter Your Email
+              </label>
+              <input
+                ref={emailRef}
+                id="survey-email"
+                type="email"
+                maxLength={EMAIL_MAX}
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => {
+                  clearError("email");
+                  setEmail(e.target.value);
+                }}
+                className={`field-input ${errors.email ? "border-red-500" : ""}`}
+              />
+              {errorText("email")}
+            </div>
+          )}
+
+          {ageMode !== "off" && (
+            <div className="mb-5">
+              <label
+                className={`field-label ${ageMode === "required" ? "required" : ""}`}
+                htmlFor="survey-age"
+              >
+                Enter Your Age
+              </label>
+              <input
+                ref={ageRef}
+                id="survey-age"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={3}
+                placeholder="e.g. 28"
+                value={age}
+                disabled={agePreferNotToSay}
+                onChange={(e) => {
+                  clearError("age");
+                  setAge(e.target.value.replace(/\D/g, "").slice(0, 3));
+                }}
+                className={`field-input disabled:opacity-60 ${errors.age ? "border-red-500" : ""}`}
+              />
+              <label className="mt-2 flex items-center gap-2 text-[13px] text-placeholder cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agePreferNotToSay}
+                  onChange={(e) => {
+                    clearError("age");
+                    setAgePreferNotToSay(e.target.checked);
+                    if (e.target.checked) setAge("");
+                  }}
+                  className="h-4 w-4 accent-black cursor-pointer"
+                />
+                Prefer not to say
+              </label>
+              {errorText("age")}
+            </div>
+          )}
+        </AboutYouSection>
       )}
 
       {descriptionMode !== "off" && (
@@ -856,16 +1018,18 @@ const SurveyForm = ({
             ref={descriptionRef}
             id="survey-desc"
             placeholder="enter description"
+            maxLength={TEXT_MAX}
             value={description}
             onChange={(e) => {
               clearError("description");
-              setDescription(e.target.value);
+              setDescription(e.target.value.slice(0, TEXT_MAX));
             }}
             className={`field-textarea nice-scrollbar ${errors.description ? "border-red-500" : ""}`}
           />
-          {errors.description && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.description}</p>
-          )}
+          <p className="mt-1 text-right text-[11px] text-placeholder">
+            {description.length}/{TEXT_MAX}
+          </p>
+          {errorText("description")}
         </div>
       )}
 
@@ -897,9 +1061,7 @@ const SurveyForm = ({
             <span className="text-red-500 ml-0.5">*</span>
           </label>
         </div>
-        {errors.consent && (
-          <p className="mt-1.5 text-xs text-red-500">{errors.consent}</p>
-        )}
+        {errorText("consent")}
       </div>
 
       <button

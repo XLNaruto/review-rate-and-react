@@ -47,18 +47,26 @@ export const apiHeader = (isFormData: any) => {
 };
 
 // API CALL for POST method
-export const postData = async (api: any, data: any, headers: any) => {
+// `skipRateLimitGate`: return a 429 to the caller instead of raising the
+// full-page rate-limit gate — used on submit, where the form must stay on
+// screen with the answers kept and an inline message shown.
+export const postData = async (
+  api: any,
+  data: any,
+  headers: any,
+  options: { skipRateLimitGate?: boolean } = {}
+) => {
   try {
     const url = `${URL.apiUrl}${api}`;
 
     const response = await axios.post(url, data, headers);
 
-    if (handleRateLimit(response)) return response;
+    if (!options.skipRateLimitGate && handleRateLimit(response)) return response;
     return response;
   } catch (error: any) {
-    console.log('error ==============++==+=======+==+', error.message);
-    console.log('error ==============++==+=======+==+', error);
-    if (handleRateLimit(error?.response)) return error?.response;
+    console.log('Error:', error.message);
+    if (!options.skipRateLimitGate && handleRateLimit(error?.response))
+      return error?.response;
     return error?.response;
   }
 };

@@ -68,7 +68,7 @@ const EthnicityRaceFields = ({
     : {};
   const fieldError = (field: DemographicField) =>
     fieldErrors[field] ? (
-      <p className="mt-1.5 text-xs text-red-500">{fieldErrors[field]}</p>
+      <p role="alert" className="mt-1.5 text-xs text-red-500">{fieldErrors[field]}</p>
     ) : null;
   const selectedEthnicity = ethnicities.find(
     (e) => e.categoryId === value.ethnicityCategoryId

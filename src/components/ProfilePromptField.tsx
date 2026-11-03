@@ -98,7 +98,7 @@ const ProfilePromptField = forwardRef<HTMLDivElement, ProfilePromptFieldProps>(
         )}
 
         {error && (
-          <p id={errorId} className="mt-1.5 text-xs text-red-500">
+          <p id={errorId} role="alert" className="mt-1.5 text-xs text-red-500">
             {error}
           </p>
         )}

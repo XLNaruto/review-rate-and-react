@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import { toAbsoluteUrl } from "../utils/Assets";
 import FeedbackSummary from "./FeedbackSummary";
 import ReactionPicker from "./ReactionPicker";
@@ -8,6 +7,7 @@ import SelectDropdown from "./SelectDropdown";
 import EthnicityRaceFields from "./EthnicityRaceFields";
 import BusinessServiceField from "./BusinessServiceField";
 import ProfilePromptField from "./ProfilePromptField";
+import AboutYouSection from "./AboutYouSection";
 import {
   submitReview,
   getScanQrProducts,
@@ -15,15 +15,20 @@ import {
   buildProfileSummary,
   ethnicityFromPicker,
   PII_FIELD_ERROR_KEYS,
+  REVIEW_DESCRIPTION_REQUIRED,
   REVIEW_PII_REQUIRED,
   REVIEW_PROFILE_OPTION_INVALID,
   REVIEW_PROFILE_REQUIRED,
+  type AboutYou,
+  type BlockedState,
   type EthnicityOption,
+  type GenderOption,
   type ProfilePrompt,
   type ScanQrProduct,
   type ScanQrReaction,
 } from "../api";
 import { saveSubmission } from "../utils/SubmissionStore";
+import { handleSubmitError } from "../utils/submitErrors";
 import { useDemographicsData } from "../hooks/useDemographicsData";
 import {
   buildRaceAndEthnicityPayload,
@@ -33,12 +38,9 @@ import {
   type RaceAndEthnicityPayload,
 } from "../data/demographics";
 
-const GENDER_OPTIONS = [
-  { label: "Male", value: "male" },
-  { label: "Female", value: "female" },
-  { label: "Prefer not to say", value: "prefer_not_to_say" },
-  { label: "Other", value: "other" },
-];
+// Server limits (spec §4.1).
+const TEXT_MAX = 2000;
+const EMAIL_MAX = 254;
 
 // Reaction media is a full CDN url from the API; fall back to resolving
 // project-relative paths through the asset base just in case.
@@ -111,6 +113,14 @@ type FeedbackFormProps = {
   profilePrompts?: ProfilePrompt[];
   /** Re-fetches the scan response (fresh profile prompts). */
   onRefreshPrompts?: () => Promise<void>;
+  /** Business QR: the vendor offers services (`is_product`). */
+  isProduct?: boolean;
+  /** `about_you` settings (wording, anonymity notice, fixed note). */
+  aboutYou: AboutYou;
+  /** Gender answers (`about_you.options.gender`). */
+  genderOptions: GenderOption[];
+  /** Switch the page to a state screen after a submit says so. */
+  onBlocked?: (state: BlockedState) => void;
 };
 
 const FeedbackForm = ({
@@ -125,6 +135,10 @@ const FeedbackForm = ({
   reviewQuestion,
   profilePrompts = [],
   onRefreshPrompts,
+  isProduct = false,
+  aboutYou,
+  genderOptions,
+  onBlocked,
 }: FeedbackFormProps) => {
   // The admin can override the reaction/rating prompt per QR code; an empty or
   // whitespace-only value means "use the default question".
@@ -153,13 +167,26 @@ const FeedbackForm = ({
     (userInfoModes?.description_mode as FieldMode) ?? "off";
   // Live ethnicity/race reference data (with static fallback) — used both to
   // render the fields and to resolve ids→names for the save payload.
-  const { ethnicities, races } = useDemographicsData();
-  // Business services are only offered on a business QR, and only when the
-  // admin has turned the field on (optional/required).
-  const serviceMode =
-    kind === "business_qr"
+  // Only fetched when the picker is shown (RV-16).
+  const { ethnicities, races } = useDemographicsData(raceMode !== "off");
+  // Business services are only offered on a business QR whose vendor has
+  // services (`is_product`), and only when the field is on (optional/required).
+  const serviceMode: FieldMode =
+    kind === "business_qr" && isProduct
       ? ((userInfoModes?.business_service_mode as FieldMode) ?? "off")
       : "off";
+
+  // The "About you" step: shown when any built-in or profile prompt is on.
+  const aboutModes = [
+    emailMode,
+    ageMode,
+    genderMode,
+    postalMode,
+    ethnicityMode,
+    raceMode,
+  ];
+  const aboutShown =
+    profilePrompts.length > 0 || aboutModes.some((m) => m !== "off");
 
   const [selectedReaction, setSelectedReaction] = useState<string | null>(
     initialSubmission?.reaction ?? null,
@@ -224,11 +251,11 @@ const FeedbackForm = ({
   const dragStartXRef = useRef<number | null>(null);
   const didDragRef = useRef(false);
 
-  // Load the business's services on every business QR (independent of the
-  // field's mode). On failure the list stays empty and the field — when shown —
-  // simply reads "No services found".
+  // Load the business's services only when the picker is shown (business QR
+  // with `is_product`). On failure the list stays empty and the field simply
+  // reads "No services found".
   useEffect(() => {
-    if (kind !== "business_qr" || !slug) return;
+    if (serviceMode === "off" || !slug) return;
     let cancelled = false;
     (async () => {
       const list = await getScanQrProducts(slug);
@@ -237,7 +264,7 @@ const FeedbackForm = ({
     return () => {
       cancelled = true;
     };
-  }, [kind, slug]);
+  }, [serviceMode, slug]);
 
   const getBtnCenter = (idx: number) => {
     const btn = ratingBtnRefs.current[idx];
@@ -306,13 +333,14 @@ const FeedbackForm = ({
 
   // The Ethnicity answer to send: the question's own answer, else the one the
   // reviewer already gave in the Race & Ethnicity picker (no asking twice).
-  const effectiveEthnicity =
+  const ethnicityOf = (eth: string, demo: DemographicsValue) =>
     ethnicityMode === "off"
       ? ""
-      : ethnicity ||
+      : eth ||
         (raceMode !== "off"
-          ? ethnicityFromPicker(demographics.ethnicityCategoryId, ethnicityOptions)
+          ? ethnicityFromPicker(demo.ethnicityCategoryId, ethnicityOptions)
           : "");
+  const effectiveEthnicity = ethnicityOf(ethnicity, demographics);
   const ethnicityLabel = ethnicityOptions.find(
     (o) => o.value === effectiveEthnicity,
   )?.label;
@@ -322,6 +350,20 @@ const FeedbackForm = ({
     if (!selectedReaction) e.reaction = "Please select a reaction.";
     if (!selectedRating) e.rating = "Please select a rating.";
 
+    if (serviceMode === "required" && selectedProductIds.length === 0)
+      e.service = "Please select at least one service.";
+
+    validateAbout(e);
+
+    if (descriptionMode === "required" && !description.trim())
+      e.description = "Description is required.";
+
+    if (!consent) e.consent = "Please acknowledge and consent to continue.";
+
+    return e;
+  };
+
+  const validateAbout = (e: Record<string, string>) => {
     if (emailMode !== "off") {
       const v = email.trim();
       if (!v && emailMode === "required") e.email = "Email is required.";
@@ -343,9 +385,6 @@ const FeedbackForm = ({
       const v = gender.trim();
       if (!v && genderMode === "required") e.gender = "Gender is required.";
     }
-
-    if (serviceMode === "required" && selectedProductIds.length === 0)
-      e.service = "Please select at least one service.";
 
     for (const p of profilePrompts) {
       if (p.mode === "required" && !profile[p.field_id])
@@ -378,13 +417,6 @@ const FeedbackForm = ({
       );
       if (raceErr) e.race = raceErr.message;
     }
-
-    if (descriptionMode === "required" && !description.trim())
-      e.description = "Description is required.";
-
-    if (!consent) e.consent = "Please acknowledge and consent to continue.";
-
-    return e;
   };
 
   const focusFirstError = (errs: Record<string, string>) => {
@@ -482,7 +514,14 @@ const FeedbackForm = ({
   // Server-side safety net for the "about you" prompts: show a
   // REVIEW_PII_REQUIRED next to its field. Returns true when handled inline.
   const handlePiiError = (response: any) => {
-    if (response?.data?.error !== REVIEW_PII_REQUIRED) return false;
+    const code = response?.data?.error;
+    if (code === REVIEW_DESCRIPTION_REQUIRED && descriptionMode !== "off") {
+      const errs = { description: "Please add a description." };
+      setErrors(errs);
+      focusFirstError(errs);
+      return true;
+    }
+    if (code !== REVIEW_PII_REQUIRED) return false;
     const key = PII_FIELD_ERROR_KEYS[response?.data?.details?.field];
     const shown: Record<string, boolean> = {
       email: emailMode !== "off",
@@ -511,9 +550,28 @@ const FeedbackForm = ({
     }
     if (submitting) return;
 
+    const about = {
+      email,
+      age,
+      agePreferNotToSay,
+      gender,
+      postalCode,
+      ethnicity,
+      demographics,
+      profile,
+    };
+    const sendEthnicity = ethnicityOf(about.ethnicity, about.demographics);
+    const sendEthnicityLabel = ethnicityOptions.find(
+      (o) => o.value === sendEthnicity,
+    )?.label;
+    const raceAndEthnicity =
+      raceMode !== "off"
+        ? buildRaceAndEthnicityPayload(about.demographics, ethnicities, races)
+        : undefined;
+
     setSubmitting(true);
 
-    const profilePayload = buildProfilePayload(profilePrompts, profile);
+    const profilePayload = buildProfilePayload(profilePrompts, about.profile);
     const trimmedDescription = description.trim();
     const response: any = await submitReview({
       kind,
@@ -523,44 +581,43 @@ const FeedbackForm = ({
       ...(descriptionMode !== "off" && trimmedDescription
         ? { description: trimmedDescription }
         : {}),
-      ...(emailMode !== "off" && email.trim() ? { email: email.trim() } : {}),
-      ...(genderMode !== "off" && gender.trim()
-        ? { gender: gender.trim() }
+      ...(emailMode !== "off" && about.email.trim()
+        ? { email: about.email.trim() }
         : {}),
-      ...(ageMode !== "off" && agePreferNotToSay
+      ...(genderMode !== "off" && about.gender.trim()
+        ? { gender: about.gender.trim() }
+        : {}),
+      ...(ageMode !== "off" && about.agePreferNotToSay
         ? { age_prefer_not_to_say: true }
-        : ageMode !== "off" && age.trim()
-          ? { age: Number(age) }
+        : ageMode !== "off" && about.age.trim()
+          ? { age: Number(about.age) }
           : {}),
-      ...(postalMode !== "off" && postalCode.trim()
-        ? { postal_code: postalCode.trim() }
+      ...(postalMode !== "off" && about.postalCode.trim()
+        ? { postal_code: about.postalCode.trim() }
         : {}),
-      ...(effectiveEthnicity ? { ethnicity: effectiveEthnicity } : {}),
+      ...(sendEthnicity ? { ethnicity: sendEthnicity } : {}),
       ...(serviceMode !== "off" && selectedProductIds.length
-        ? { product_ids: selectedProductIds }
+        ? { product_ids: selectedProductIds.slice(0, 50) }
         : {}),
-      ...(raceMode !== "off" &&
-      buildRaceAndEthnicityPayload(demographics, ethnicities, races)
-        ? {
-            race_and_ethnicity: buildRaceAndEthnicityPayload(
-              demographics,
-              ethnicities,
-              races,
-            ),
-          }
-        : {}),
+      ...(raceAndEthnicity ? { race_and_ethnicity: raceAndEthnicity } : {}),
       ...(profilePayload.length ? { profile: profilePayload } : {}),
     });
 
     setSubmitting(false);
 
-    if (await handleProfileError(response)) return;
-    if (handlePiiError(response)) return;
-
     if (!["200", "201"].includes(String(response?.status))) {
-      toast.error(
-        response?.data?.message ?? "Something went wrong. Please try again.",
-      );
+      if (await handleProfileError(response)) return;
+      if (handlePiiError(response)) return;
+      await handleSubmitError(response, {
+        onBlocked,
+        onRefresh: onRefreshPrompts,
+        onReactionUnavailable: () => {
+          setSelectedReaction(null);
+          setSelectedRating(null);
+          setRatingBursts({});
+          setErrors({ reaction: "Please pick another reaction." });
+        },
+      });
       return;
     }
 
@@ -573,27 +630,23 @@ const FeedbackForm = ({
       reactionMediaUrl: chosenReaction?.media_url,
       reactionBg: chosenReaction?.background_color,
       rating: selectedRating,
-      email,
-      age,
-      agePreferNotToSay,
-      gender,
-      postalCode,
-      ethnicity: effectiveEthnicity,
-      ethnicityLabel,
+      email: about.email,
+      age: about.age,
+      agePreferNotToSay: about.agePreferNotToSay,
+      gender: about.gender,
+      postalCode: about.postalCode,
+      ethnicity: sendEthnicity,
+      ethnicityLabel: sendEthnicityLabel,
       description,
       productIds: selectedProductIds,
-      demographics,
+      demographics: about.demographics,
       // Persist resolved names too, so the restored summary needs no lookup.
       serviceNames: products
         .filter((p) => selectedProductIds.includes(p.product_id))
         .map((p) => p.name),
-      raceAndEthnicity: buildRaceAndEthnicityPayload(
-        demographics,
-        ethnicities,
-        races,
-      ),
-      profile,
-      profileAnswers: buildProfileSummary(profilePrompts, profile),
+      raceAndEthnicity,
+      profile: about.profile,
+      profileAnswers: buildProfileSummary(profilePrompts, about.profile),
     });
 
     setSubmitted(true);
@@ -623,7 +676,7 @@ const FeedbackForm = ({
           ageMode === "off" ? "" : agePreferNotToSay ? "Prefer not to say" : age
         }
         gender={genderMode !== "off" ? gender : ""}
-        postalCode={postalCode}
+        postalCode={postalMode !== "off" ? postalCode : ""}
         services={
           serviceMode !== "off"
             ? (initialSubmission?.serviceNames ??
@@ -660,9 +713,9 @@ const FeedbackForm = ({
     <div className="animate-fade-in-up [animation-delay:320ms]">
       {!selectedReaction && (
         <div className="animate-fade-in mb-5">
-          <h1 className="text-[15px] font-medium required mb-3">
+          <h2 className="text-[15px] font-medium required mb-3">
             {question}
-          </h1>
+          </h2>
           <div
             ref={reactionRowRef}
             className={`border rounded-[10rem] p-5 ${
@@ -678,16 +731,16 @@ const FeedbackForm = ({
             />
           </div>
           {errors.reaction && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.reaction}</p>
+            <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.reaction}</p>
           )}
         </div>
       )}
 
       {selectedReaction && (
         <div className="animate-fade-in mb-5">
-          <h1 className="text-[15px] font-medium required mb-3">
+          <h2 className="text-[15px] font-medium required mb-3">
             {question}
-          </h1>
+          </h2>
           <div
             ref={ratingRowRef}
             className={`relative border rounded-[10rem] p-5 flex justify-around items-center ${
@@ -818,7 +871,7 @@ const FeedbackForm = ({
             })}
           </div>
           {errors.rating && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.rating}</p>
+            <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.rating}</p>
           )}
         </div>
       )}
@@ -844,11 +897,13 @@ const FeedbackForm = ({
             />
           </div>
           {errors.service && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.service}</p>
+            <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.service}</p>
           )}
         </div>
       )}
 
+      {aboutShown && (
+        <AboutYouSection aboutYou={aboutYou}>
       {profilePrompts.map((p) => (
         <ProfilePromptField
           key={p.field_id}
@@ -878,12 +933,12 @@ const FeedbackForm = ({
               clearError("gender");
               setGender(v);
             }}
-            options={GENDER_OPTIONS}
+            options={genderOptions}
             placeholder="Select your gender"
             error={!!errors.gender}
           />
           {errors.gender && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.gender}</p>
+            <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.gender}</p>
           )}
         </div>
       )}
@@ -912,7 +967,7 @@ const FeedbackForm = ({
             className={`field-input ${errors.postalCode ? "border-red-500" : ""}`}
           />
           {errors.postalCode && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.postalCode}</p>
+            <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.postalCode}</p>
           )}
         </div>
       )}
@@ -969,6 +1024,7 @@ const FeedbackForm = ({
             ref={emailRef}
             id="email"
             type="email"
+            maxLength={EMAIL_MAX}
             placeholder="you@example.com"
             value={email}
             onChange={(e) => {
@@ -978,7 +1034,7 @@ const FeedbackForm = ({
             className={`field-input ${errors.email ? "border-red-500" : ""}`}
           />
           {errors.email && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.email}</p>
+            <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.email}</p>
           )}
         </div>
       )}
@@ -1021,9 +1077,11 @@ const FeedbackForm = ({
             Prefer not to say
           </label>
           {errors.age && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.age}</p>
+            <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.age}</p>
           )}
         </div>
+      )}
+        </AboutYouSection>
       )}
 
       {descriptionMode !== "off" && (
@@ -1038,15 +1096,19 @@ const FeedbackForm = ({
             ref={descriptionRef}
             id="description"
             placeholder="enter description"
+            maxLength={TEXT_MAX}
             value={description}
             onChange={(e) => {
               clearError("description");
-              setDescription(e.target.value);
+              setDescription(e.target.value.slice(0, TEXT_MAX));
             }}
             className={`field-textarea ${errors.description ? "border-red-500" : ""}`}
           />
+          <p className="mt-1 text-right text-[11px] text-placeholder">
+            {description.length}/{TEXT_MAX}
+          </p>
           {errors.description && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.description}</p>
+            <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.description}</p>
           )}
         </div>
       )}
@@ -1082,7 +1144,7 @@ const FeedbackForm = ({
           </label>
         </div>
         {errors.consent && (
-          <p className="mt-1.5 text-xs text-red-500">{errors.consent}</p>
+          <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.consent}</p>
         )}
       </div>
       <button

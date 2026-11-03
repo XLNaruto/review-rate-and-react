@@ -10,10 +10,13 @@ import InvalidQr from "../../components/InvalidQr";
 import ScanClosed from "../../components/ScanClosed";
 import { toAbsoluteUrl } from "../../utils/Assets";
 import {
+  getAboutYou,
   getEthnicityOptions,
+  getGenderOptions,
   getProfilePrompts,
   getScanQr,
   getUserInfoModes,
+  type BlockedState,
 } from "../../api";
 import {
   getSubmission,
@@ -22,6 +25,7 @@ import {
   saveQrData,
   saveQrClosed,
   removeQrData,
+  type QrClosed,
 } from "../../utils/SubmissionStore";
 import { isRateLimited } from "../../utils/RateLimit";
 
@@ -43,10 +47,7 @@ const ScanQr = () => {
   const [submission, setSubmission] = useState<any>(null);
   // Set when the API answers 403: the slug is valid but the QR isn't taking
   // responses right now. Takes precedence over any cached page below.
-  const [closed, setClosed] = useState<{
-    code: string;
-    message: string;
-  } | null>(null);
+  const [closed, setClosed] = useState<QrClosed | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +95,11 @@ const ScanQr = () => {
         // (it's still the right page once the business reopens) and show the
         // reason the API gave us instead of the form. Remember it so the next
         // refresh opens on this screen rather than flashing the form.
-        const next = { code: result.code, message: result.message };
+        const next: QrClosed = {
+          code: result.code,
+          message: result.message,
+          ...(result.details ? { details: result.details } : {}),
+        };
         setClosed(next);
         saveQrClosed(slug, next);
       } else if (result?.status === "not_found") {
@@ -124,8 +129,34 @@ const ScanQr = () => {
     }
   };
 
+  // A submit found the QR gone / the survey window shut / the vendor not
+  // accepting: switch to the matching state screen.
+  const handleBlocked = (state: BlockedState) => {
+    window.scrollTo({ top: 0 });
+    if (state.kind === "not_found") {
+      removeQrData(slug);
+      setClosed(null);
+      setData(null);
+      return;
+    }
+    const next: QrClosed = {
+      code: state.code,
+      message: state.message,
+      ...(state.details ? { details: state.details } : {}),
+    };
+    setClosed(next);
+    saveQrClosed(slug, next);
+  };
+
   if (loading) return <SkeletonReaction />;
-  if (closed) return <ScanClosed code={closed.code} message={closed.message} />;
+  if (closed)
+    return (
+      <ScanClosed
+        code={closed.code}
+        message={closed.message}
+        details={closed.details}
+      />
+    );
   if (!data) return <InvalidQr />;
 
   const { kind, qr, vendor, product, survey } = data;
@@ -135,6 +166,8 @@ const ScanQr = () => {
   const profilePrompts = getProfilePrompts(data);
   const userInfoModes = getUserInfoModes(data);
   const ethnicityOptions = getEthnicityOptions(data);
+  const aboutYou = getAboutYou(data);
+  const genderOptions = getGenderOptions(data);
   const handleSubmitted = () => {
     setSubmitted(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -156,13 +189,13 @@ const ScanQr = () => {
               src={logo}
               alt={vendor?.business_name}
             />
-            <h1 className="text-[20px] font-bold text-center mt-2">
+            <h2 className="text-[20px] font-bold text-center mt-2">
               {vendor?.business_name}
-            </h1>
+            </h2>
           </div>
 
           <div className="survey-card mb-5 animate-fade-in-up [animation-delay:160ms]">
-            <h1 className="font-bold text-[18px] mb-4">Survey</h1>
+            <h2 className="font-bold text-[18px] mb-4">Survey</h2>
             <div className="flex items-center gap-3">
               <SmartImage
                 wrapperClassName="block w-[24px] h-[24px] shrink-0"
@@ -170,7 +203,10 @@ const ScanQr = () => {
                 src={toAbsoluteUrl("media/icons/filter-mail-edit.svg")}
                 alt="survey"
               />
-              <p className="text-[14px]">{survey?.name}</p>
+              {/* Never the internal `survey.name` (RV-02). */}
+              <p className="text-[14px]">
+                {survey?.title?.trim() || "Help us personalize your experience"}
+              </p>
             </div>
           </div>
 
@@ -178,9 +214,13 @@ const ScanQr = () => {
             onSubmitted={handleSubmitted}
             surveyId={surveyId}
             slug={slug}
-            title={survey?.title}
             initialSubmission={submission}
             questions={survey?.questions ?? []}
+            reactionOnAllQuestions={!!survey?.reaction_on_all_questions}
+            isCadence={survey?.question_day != null}
+            aboutYou={aboutYou}
+            genderOptions={genderOptions}
+            onBlocked={handleBlocked}
             userInfoModes={userInfoModes}
             ethnicityOptions={ethnicityOptions}
             reactions={data.reactions ?? []}
@@ -205,10 +245,14 @@ const ScanQr = () => {
             name={vendor?.business_name}
             productImage={resolveSrc(product?.image)}
             productName={product?.name ?? qr.name}
+            productCategory={product?.category}
           />
           <FeedbackForm
             onSubmitted={handleSubmitted}
             kind="product_qr"
+            aboutYou={aboutYou}
+            genderOptions={genderOptions}
+            onBlocked={handleBlocked}
             qrCodeId={qrCodeId}
             slug={slug}
             initialSubmission={submission}
@@ -236,12 +280,17 @@ const ScanQr = () => {
           name={vendor?.business_name}
           location={data.location_name ?? ""}
           about={vendor?.about_business ?? ""}
-          website={vendor?.business_link ?? ""}
+          website={vendor?.business_url ?? vendor?.business_link ?? ""}
           socialLinks={vendor?.social_links ?? {}}
         />
         <FeedbackForm
           onSubmitted={handleSubmitted}
           kind="business_qr"
+          // Older cached payloads predate `is_product`: fall back to the mode.
+          isProduct={data.is_product ?? true}
+          aboutYou={aboutYou}
+          genderOptions={genderOptions}
+          onBlocked={handleBlocked}
           qrCodeId={qrCodeId}
           slug={slug}
           initialSubmission={submission}

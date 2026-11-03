@@ -20,12 +20,15 @@ let inflight: Promise<DemographicsData> | null = null;
 // Live ethnicity & race reference data. Falls back to the bundled static lists
 // while loading or if the API returns nothing, so the form is never left with
 // empty/unusable selectors.
-export const useDemographicsData = (): DemographicsData => {
+// `enabled`: only fetch when the Race & Ethnicity picker is actually shown
+// (race_mode !== "off"); otherwise the static lists are returned and no
+// request is made. Once fetched, the lists are cached for the session.
+export const useDemographicsData = (enabled = true): DemographicsData => {
   const [data, setData] = useState<DemographicsData | null>(cache);
 
   useEffect(() => {
     // `data` already initialises to `cache`, so nothing to do if it's loaded.
-    if (cache) return;
+    if (!enabled || cache) return;
     let cancelled = false;
     // Kick off (or join) the one shared fetch; resolve asynchronously so we
     // never call setState synchronously inside the effect body.
@@ -41,7 +44,7 @@ export const useDemographicsData = (): DemographicsData => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [enabled]);
 
   return {
     ethnicities: data?.ethnicities?.length ? data.ethnicities : ETHNICITIES,

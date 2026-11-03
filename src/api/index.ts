@@ -15,14 +15,23 @@ export type ScanQrResult =
   | { status: "ok"; data: any }
   | { status: "not_found" } // 404 — invalid/expired slug, drop any cached page
   // 403 — the slug is valid but the QR is closed to responses right now
-  // (paused / outside its schedule / response cap reached). `code` and
-  // `message` come straight from the API so the page can show its reason.
-  | { status: "closed"; code: string; message: string }
+  // (SCAN_NOT_ACCEPTING / SURVEY_NOT_OPEN_YET / SURVEY_CLOSED). `code`,
+  // `message` and `details` (opens_at / closes_at) come straight from the API.
+  | {
+      status: "closed";
+      code: string;
+      message: string;
+      details?: Record<string, any>;
+    }
   | { status: "rate_limited" } // 429 — the global gate takes over
   | { status: "error" }; // network/5xx — keep whatever's cached
 
-// GET /public/scan-qr/{slug}
-export const getScanQr = async (slug: string): Promise<ScanQrResult> => {
+// Every successful scan-qr call counts as one "open" in the vendor's
+// completion rate, so concurrent calls for the same slug (StrictMode's double
+// effect, a quick re-render) share one request instead of counting twice.
+const scanInflight = new Map<string, Promise<ScanQrResult>>();
+
+const fetchScanQr = async (slug: string): Promise<ScanQrResult> => {
   const response: any = await getData(
     `public/scan-qr/${encodeURIComponent(slug)}`,
     {},
@@ -40,12 +49,25 @@ export const getScanQr = async (slug: string): Promise<ScanQrResult> => {
       message: String(
         body.message ?? "This QR code is not accepting responses right now.",
       ),
+      ...(body.details && typeof body.details === "object"
+        ? { details: body.details }
+        : {}),
     };
   }
   if (code === 429) return { status: "rate_limited" };
 
   console.log("getScanQr failed:", response?.data?.message ?? response?.status);
   return { status: "error" };
+};
+
+// GET /public/scan-qr/{slug}
+export const getScanQr = (slug: string): Promise<ScanQrResult> => {
+  let pending = scanInflight.get(slug);
+  if (!pending) {
+    pending = fetchScanQr(slug).finally(() => scanInflight.delete(slug));
+    scanInflight.set(slug, pending);
+  }
+  return pending;
 };
 
 // A reaction the customer can pick, configured per-vendor in the admin panel and
@@ -129,6 +151,46 @@ export const getEthnicityOptions = (data: any): EthnicityOption[] => {
     : [];
 };
 
+// The "About you" step settings from the scan-qr payload.
+export type AboutYou = {
+  feedbackType: "customer" | "employee";
+  // Anonymity text shown above the prompts; null → show nothing.
+  notice: string | null;
+  // "Your location and team come from the code you scanned." when a profile
+  // field is preset (Fixed) on the source.
+  fixedNote: string | null;
+};
+
+export const getAboutYou = (data: any): AboutYou => {
+  const a = data?.about_you ?? {};
+  const text = (v: unknown) =>
+    typeof v === "string" && v.trim() ? v.trim() : null;
+  return {
+    feedbackType: a.feedback_type === "employee" ? "employee" : "customer",
+    notice: text(a.notice),
+    fixedNote: text(a.fixed_note),
+  };
+};
+
+// Gender answers from `about_you.options.gender`; falls back to the four
+// values the API accepts when an older payload doesn't carry the list.
+export type GenderOption = { value: string; label: string };
+
+const DEFAULT_GENDER_OPTIONS: GenderOption[] = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "other", label: "Other" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+];
+
+export const getGenderOptions = (data: any): GenderOption[] => {
+  const list = data?.about_you?.options?.gender;
+  const opts = Array.isArray(list)
+    ? (list as GenderOption[]).filter((o) => o?.value && o?.label)
+    : [];
+  return opts.length ? opts : DEFAULT_GENDER_OPTIONS;
+};
+
 // The per-prompt modes. Most live under `user_info_modes`; ethnicity_mode and
 // race_mode may also come top-level on the scan response, so fall back to those.
 export const getUserInfoModes = (data: any) => ({
@@ -157,24 +219,39 @@ export const ethnicityFromPicker = (
 };
 
 // GET /public/scan-qr/{slug}/products  — the services a customer can pick from
-// on a business QR. Returns [] on any non-200 so the caller can render the rest
-// of the form regardless (the field just shows no options).
+// on a business QR (only call it when the scan response has `is_product`).
+// Pages through the list ({ count, limit, offset, data }) so vendors with more
+// than one page of services get all of them. Returns what it has on any
+// non-200 so the rest of the form still renders.
+const PRODUCTS_PAGE_SIZE = 100;
+
 export const getScanQrProducts = async (
   slug: string,
 ): Promise<ScanQrProduct[]> => {
-  const response: any = await getData(
-    `public/scan-qr/${encodeURIComponent(slug)}/products`,
-    {},
-    apiHeader(false),
-  );
+  const all: ScanQrProduct[] = [];
+  let offset = 0;
+  // Hard stop so a bad `count` can never loop forever.
+  for (let page = 0; page < 50; page++) {
+    const response: any = await getData(
+      `public/scan-qr/${encodeURIComponent(slug)}/products`,
+      { limit: PRODUCTS_PAGE_SIZE, offset },
+      apiHeader(false),
+    );
+    if (Number(response?.status) !== 200) break;
 
-  if (Number(response?.status) === 200) {
     // The endpoint may return a bare array or wrap it in { data: [...] }.
     const body = response?.data;
     const list = Array.isArray(body) ? body : body?.data;
-    if (Array.isArray(list)) return list as ScanQrProduct[];
+    if (!Array.isArray(list)) break;
+    all.push(...(list as ScanQrProduct[]));
+
+    const count = Number(body?.count);
+    const limit = Number(body?.limit) || PRODUCTS_PAGE_SIZE;
+    if (Array.isArray(body) || !Number.isFinite(count)) break;
+    offset += limit;
+    if (offset >= count || list.length === 0) break;
   }
-  return [];
+  return all;
 };
 
 // Pull the category tree out of a demographics response. The endpoint returns
@@ -288,11 +365,114 @@ export const PII_FIELD_ERROR_KEYS: Record<string, string> = {
   description: "description",
 };
 
+// 400 when description_mode is required and the description is empty.
+export const REVIEW_DESCRIPTION_REQUIRED = "REVIEW_DESCRIPTION_REQUIRED";
+// 400 when a survey answer is missing its emoji / points.
+export const REVIEW_ANSWER_REACTION_REQUIRED = "REVIEW_ANSWER_REACTION_REQUIRED";
+// 400 when the chosen reaction was turned off by the vendor.
+export const REACTION_NOT_AVAILABLE = "REACTION_NOT_AVAILABLE";
+
 export const submitReview = async (payload: ReviewPayload) => {
+  // A 429 on submit is shown inline (the form keeps its answers), so it must
+  // not trip the full-page rate-limit gate.
   const response: any = await postData(
     "public/reviews",
     payload,
     apiHeader(false),
+    { skipRateLimitGate: true },
   );
   return response;
+};
+
+// A page-level state the form hands back to the page when the submit shows the
+// QR / survey / vendor is no longer taking this response.
+export type BlockedState =
+  | { kind: "not_found" }
+  | {
+      kind: "closed";
+      code: string;
+      message: string;
+      details?: Record<string, any>;
+    };
+
+// What to do with a failed submit that isn't one of the inline field errors
+// (PII / description / profile / answer-reaction), which the forms handle
+// themselves. See the review-site spec §6.
+export type SubmitErrorAction =
+  // Stale form or client bug: tell the person and offer a reload.
+  | { type: "reload"; message: string }
+  // Cadence survey left open past midnight: fetch today's question.
+  | { type: "refresh"; message: string }
+  // The picked reaction was turned off: refresh the reactions, pick again.
+  | { type: "reaction_unavailable"; message: string }
+  // The page itself should switch to a state screen.
+  | { type: "blocked"; state: BlockedState }
+  // Anything else: a message, the form stays filled in.
+  | { type: "toast"; message: string };
+
+const STALE_FORM_CODES = new Set([
+  "REVIEW_ANSWER_TYPE_MISMATCH",
+  "REVIEW_ANSWER_OPTION_INVALID",
+  "REVIEW_ANSWER_QUESTION_MISMATCH",
+  "REVIEW_ANSWER_DUPLICATE",
+]);
+
+export const classifySubmitError = (response: any): SubmitErrorAction => {
+  const status = Number(response?.status);
+  const body = response?.data ?? {};
+  const code: string = String(body.error ?? "");
+
+  if (status === 429)
+    return {
+      type: "toast",
+      message:
+        "You've already sent feedback recently. Please try again later.",
+    };
+
+  if (code === "VALIDATION_ERROR") {
+    console.warn("Review validation failed:", body.details ?? body.message);
+    return {
+      type: "toast",
+      message: "Please check your answers and try again.",
+    };
+  }
+  if (STALE_FORM_CODES.has(code))
+    return { type: "reload", message: "This survey changed. Please reload." };
+  if (code === "QR_TYPE_MISMATCH" || code === "QR_PRODUCT_MISSING")
+    return { type: "reload", message: "This page changed. Please reload." };
+  if (code === REACTION_NOT_AVAILABLE)
+    return {
+      type: "reaction_unavailable",
+      message: "That reaction isn't available any more. Please pick another.",
+    };
+  if (code === "SURVEY_QUESTION_NOT_TODAY")
+    return {
+      type: "refresh",
+      message: "Today's question has changed. Please answer the new one.",
+    };
+  if (code === "QR_NOT_FOUND" || code === "SURVEY_NOT_FOUND")
+    return { type: "blocked", state: { kind: "not_found" } };
+  if (
+    code === "SURVEY_NOT_OPEN_YET" ||
+    code === "SURVEY_CLOSED" ||
+    code === "VENDOR_NOT_ACCEPTING" ||
+    code === "VENDOR_SUBSCRIPTION_LOCKED" ||
+    code === "SCAN_NOT_ACCEPTING"
+  )
+    return {
+      type: "blocked",
+      state: {
+        kind: "closed",
+        code,
+        message: String(body.message ?? ""),
+        ...(body.details && typeof body.details === "object"
+          ? { details: body.details }
+          : {}),
+      },
+    };
+
+  return {
+    type: "toast",
+    message: "Something went wrong. Please try again.",
+  };
 };

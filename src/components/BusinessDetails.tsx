@@ -24,6 +24,7 @@ type ProductVariant = {
   name: string;
   productImage: string;
   productName: string;
+  productCategory?: string | null;
 };
 
 type BusinessDetailsProps = BusinessVariant | ProductVariant;
@@ -39,18 +40,23 @@ const BusinessDetails = (props: BusinessDetailsProps) => {
           src={resolveSrc(props.logo)}
           alt={props.name}
         />
-        <h1 className="text-[20px] font-bold text-center mt-2 mb-4">
+        <h2 className="text-[20px] font-bold text-center mt-2 mb-4">
           {props.name}
-        </h1>
+        </h2>
         <SmartImage
           wrapperClassName="block w-full aspect-square rounded-2xl"
           className="w-full h-full object-cover"
           src={resolveSrc(props.productImage)}
           alt={props.productName}
         />
-        <h1 className="text-[22px] font-bold text-center mt-5">
+        <h2 className="text-[22px] font-bold text-center mt-5">
           {props.productName}
-        </h1>
+        </h2>
+        {props.productCategory?.trim() && (
+          <p className="text-[14px] text-center text-muted mt-1">
+            {props.productCategory}
+          </p>
+        )}
       </div>
     );
   }
@@ -73,7 +79,7 @@ const BusinessDetails = (props: BusinessDetailsProps) => {
           src={resolveSrc(props.logo)}
           alt={props.name}
         />
-        <h1 className="text-[20px] font-bold text-center mt-2">{props.name}</h1>
+        <h2 className="text-[20px] font-bold text-center mt-2">{props.name}</h2>
         {props.location && (
           <h3 className="text-[16px] italic text-center text-muted mt-2">
             {props.location}
@@ -83,9 +89,9 @@ const BusinessDetails = (props: BusinessDetailsProps) => {
 
       {hasAbout && (
         <div className="bg-surface rounded-[30px] p-5 mb-5 animate-fade-in-up [animation-delay:160ms]">
-          <h1 className="font-bold text-[18px] leading-[1.1] mb-5">
+          <h2 className="font-bold text-[18px] leading-[1.1] mb-5">
             About Business
-          </h1>
+          </h2>
           <div className="flex items-start gap-[15px]">
             <SmartImage
               wrapperClassName="block w-[24px] h-[24px] shrink-0"

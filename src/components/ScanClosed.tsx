@@ -1,24 +1,58 @@
 type ScanClosedProps = {
   // The API's error code (e.g. SCAN_NOT_ACCEPTING) — picks the headline.
   code?: string;
-  // The API's human message; shown verbatim so the backend stays the source of
-  // truth for *why* it's closed. Falls back to a generic line.
+  // The API's human message; shown for codes we don't word ourselves.
   message?: string;
+  // `opens_at` / `closes_at` for the survey-window codes.
+  details?: Record<string, any>;
 };
 
-// Headline per known error code. The body text always comes from the API so a
-// new backend reason reads correctly here without a frontend change.
-const HEADINGS: Record<string, string> = {
-  SCAN_NOT_ACCEPTING: "Not accepting responses",
-  SCAN_PAUSED: "This QR is paused",
-  SCAN_CLOSED: "Responses are closed",
-  SCAN_LIMIT_REACHED: "Response limit reached",
+const formatWhen = (iso: unknown, withTime: boolean): string | null => {
+  if (typeof iso !== "string" || !iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, {
+    dateStyle: "medium",
+    ...(withTime ? { timeStyle: "short" } : {}),
+  });
 };
 
-const ScanClosed = ({ code = "", message = "" }: ScanClosedProps) => {
-  const heading = HEADINGS[code] ?? "Not accepting responses";
-  const body =
-    message.trim() || "This QR code is not accepting responses right now.";
+// Vendor-side reasons (inactive subscription, quota used up, user cap): the
+// respondent sees a neutral message and never the reason.
+const NOT_ACCEPTING_CODES = new Set([
+  "SCAN_NOT_ACCEPTING",
+  "VENDOR_NOT_ACCEPTING",
+  "VENDOR_SUBSCRIPTION_LOCKED",
+]);
+
+const NEUTRAL = {
+  heading: "Not accepting responses right now",
+  body: "This business isn't taking responses at the moment.",
+};
+
+const copyFor = (code: string, message: string, details?: Record<string, any>) => {
+  if (NOT_ACCEPTING_CODES.has(code)) return NEUTRAL;
+  if (code === "SURVEY_NOT_OPEN_YET") {
+    const when = formatWhen(details?.opens_at, true);
+    return {
+      heading: when ? `Opens ${when}` : "This survey isn't open yet",
+      body: "Please come back once it opens.",
+    };
+  }
+  if (code === "SURVEY_CLOSED") {
+    const when = formatWhen(details?.closes_at, false);
+    return {
+      heading: "This survey is closed",
+      body: when
+        ? `This survey closed on ${when}.`
+        : "This survey is no longer taking responses.",
+    };
+  }
+  return { heading: NEUTRAL.heading, body: message.trim() || NEUTRAL.body };
+};
+
+const ScanClosed = ({ code = "", message = "", details }: ScanClosedProps) => {
+  const { heading, body } = copyFor(code, message, details);
 
   return (
     <div className="min-h-[85vh] w-full p-4 flex items-center justify-center">

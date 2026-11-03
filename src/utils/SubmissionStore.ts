@@ -202,7 +202,12 @@ export const getQrData = async (slug: string): Promise<any | null> => {
 // cache record so a refresh paints <ScanClosed/> straight away instead of
 // flashing the cached form first. saveQrData() rewrites the record without it,
 // so a 200 clears it automatically.
-export type QrClosed = { code: string; message: string };
+export type QrClosed = {
+  code: string;
+  message: string;
+  // opens_at / closes_at for the survey-window screens.
+  details?: Record<string, any>;
+};
 
 export const saveQrClosed = async (
   slug: string,

@@ -80,7 +80,7 @@ const SurveySummary = ({
   const reactionByType = new Map(reactions.map((r) => [r.type, r]));
   return (
     <div className="border border-success bg-success-tint rounded-[30px] p-5 animate-scale-in">
-      <h1 className="text-[20px] font-bold mb-5">Thanks! Here's Your Response</h1>
+      <h2 className="text-[20px] font-bold mb-5">Thanks! Here's Your Response</h2>
 
       {questions.map((q, idx) => {
         const a = answers[q.id];
@@ -111,6 +111,12 @@ const SurveySummary = ({
                 <div className="rounded-2xl bg-white border border-option-border text-option-text text-[13px] px-4 py-3 leading-normal mb-3">
                   {a}
                 </div>
+              )}
+
+              {!rr?.reaction && rr?.rating != null && (
+                <span className="inline-flex w-10 h-10 rounded-full items-center justify-center bg-chip text-black text-[16px] font-semibold">
+                  {rr.rating}
+                </span>
               )}
 
               {rr?.reaction && reactionByType.has(rr.reaction) && (
