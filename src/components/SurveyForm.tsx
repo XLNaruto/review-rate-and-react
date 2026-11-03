@@ -4,7 +4,6 @@ import SurveySummary from "./SurveySummary";
 import SelectDropdown from "./SelectDropdown";
 import EthnicityRaceFields from "./EthnicityRaceFields";
 import ProfilePromptField from "./ProfilePromptField";
-import AboutYouSection from "./AboutYouSection";
 import {
   submitReview,
   buildProfilePayload,
@@ -16,7 +15,6 @@ import {
   REVIEW_PII_REQUIRED,
   REVIEW_PROFILE_OPTION_INVALID,
   REVIEW_PROFILE_REQUIRED,
-  type AboutYou,
   type BlockedState,
   type EthnicityOption,
   type GenderOption,
@@ -98,8 +96,6 @@ type SurveyFormProps = {
   reactionOnAllQuestions?: boolean;
   /** Cadence (kiosk) survey: `questions` holds only today's question. */
   isCadence?: boolean;
-  /** `about_you` settings (wording, anonymity notice, fixed note). */
-  aboutYou: AboutYou;
   /** Gender answers (`about_you.options.gender`). */
   genderOptions: GenderOption[];
   /** Switch the page to a state screen after a submit says so. */
@@ -184,7 +180,6 @@ const SurveyForm = ({
   questions,
   reactionOnAllQuestions = false,
   isCadence = false,
-  aboutYou,
   genderOptions,
   onBlocked,
   userInfoModes,
@@ -216,17 +211,6 @@ const SurveyForm = ({
   const needsRR = (q: SurveyQuestion) =>
     reactionOnAllQuestions || q.type === "reaction";
 
-  // The "About you" step: shown when any built-in or profile prompt is on.
-  const aboutModes = [
-    emailMode,
-    ageMode,
-    genderMode,
-    postalMode,
-    ethnicityMode,
-    raceMode,
-  ];
-  const aboutShown =
-    profilePrompts.length > 0 || aboutModes.some((m) => m !== "off");
 
   const sorted = [...(questions ?? [])].sort(
     (a, b) => (a.position ?? 0) - (b.position ?? 0)
@@ -830,8 +814,7 @@ const SurveyForm = ({
         );
       })}
 
-      {aboutShown && (
-        <AboutYouSection aboutYou={aboutYou}>
+      <div className="mt-6">
           {profilePrompts.map((p) => (
             <ProfilePromptField
               key={p.field_id}
@@ -1003,8 +986,7 @@ const SurveyForm = ({
               {errorText("age")}
             </div>
           )}
-        </AboutYouSection>
-      )}
+        </div>
 
       {descriptionMode !== "off" && (
         <div className="mb-5">

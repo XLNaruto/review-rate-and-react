@@ -7,7 +7,6 @@ import SelectDropdown from "./SelectDropdown";
 import EthnicityRaceFields from "./EthnicityRaceFields";
 import BusinessServiceField from "./BusinessServiceField";
 import ProfilePromptField from "./ProfilePromptField";
-import AboutYouSection from "./AboutYouSection";
 import {
   submitReview,
   getScanQrProducts,
@@ -19,7 +18,6 @@ import {
   REVIEW_PII_REQUIRED,
   REVIEW_PROFILE_OPTION_INVALID,
   REVIEW_PROFILE_REQUIRED,
-  type AboutYou,
   type BlockedState,
   type EthnicityOption,
   type GenderOption,
@@ -115,8 +113,6 @@ type FeedbackFormProps = {
   onRefreshPrompts?: () => Promise<void>;
   /** Business QR: the vendor offers services (`is_product`). */
   isProduct?: boolean;
-  /** `about_you` settings (wording, anonymity notice, fixed note). */
-  aboutYou: AboutYou;
   /** Gender answers (`about_you.options.gender`). */
   genderOptions: GenderOption[];
   /** Switch the page to a state screen after a submit says so. */
@@ -136,7 +132,6 @@ const FeedbackForm = ({
   profilePrompts = [],
   onRefreshPrompts,
   isProduct = false,
-  aboutYou,
   genderOptions,
   onBlocked,
 }: FeedbackFormProps) => {
@@ -176,17 +171,6 @@ const FeedbackForm = ({
       ? ((userInfoModes?.business_service_mode as FieldMode) ?? "off")
       : "off";
 
-  // The "About you" step: shown when any built-in or profile prompt is on.
-  const aboutModes = [
-    emailMode,
-    ageMode,
-    genderMode,
-    postalMode,
-    ethnicityMode,
-    raceMode,
-  ];
-  const aboutShown =
-    profilePrompts.length > 0 || aboutModes.some((m) => m !== "off");
 
   const [selectedReaction, setSelectedReaction] = useState<string | null>(
     initialSubmission?.reaction ?? null,
@@ -902,8 +886,6 @@ const FeedbackForm = ({
         </div>
       )}
 
-      {aboutShown && (
-        <AboutYouSection aboutYou={aboutYou}>
       {profilePrompts.map((p) => (
         <ProfilePromptField
           key={p.field_id}
@@ -1080,8 +1062,6 @@ const FeedbackForm = ({
             <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.age}</p>
           )}
         </div>
-      )}
-        </AboutYouSection>
       )}
 
       {descriptionMode !== "off" && (

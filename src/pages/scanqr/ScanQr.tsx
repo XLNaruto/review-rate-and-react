@@ -10,7 +10,6 @@ import InvalidQr from "../../components/InvalidQr";
 import ScanClosed from "../../components/ScanClosed";
 import { toAbsoluteUrl } from "../../utils/Assets";
 import {
-  getAboutYou,
   getEthnicityOptions,
   getGenderOptions,
   getProfilePrompts,
@@ -166,7 +165,6 @@ const ScanQr = () => {
   const profilePrompts = getProfilePrompts(data);
   const userInfoModes = getUserInfoModes(data);
   const ethnicityOptions = getEthnicityOptions(data);
-  const aboutYou = getAboutYou(data);
   const genderOptions = getGenderOptions(data);
   const handleSubmitted = () => {
     setSubmitted(true);
@@ -218,7 +216,6 @@ const ScanQr = () => {
             questions={survey?.questions ?? []}
             reactionOnAllQuestions={!!survey?.reaction_on_all_questions}
             isCadence={survey?.question_day != null}
-            aboutYou={aboutYou}
             genderOptions={genderOptions}
             onBlocked={handleBlocked}
             userInfoModes={userInfoModes}
@@ -250,7 +247,6 @@ const ScanQr = () => {
           <FeedbackForm
             onSubmitted={handleSubmitted}
             kind="product_qr"
-            aboutYou={aboutYou}
             genderOptions={genderOptions}
             onBlocked={handleBlocked}
             qrCodeId={qrCodeId}
@@ -288,7 +284,6 @@ const ScanQr = () => {
           kind="business_qr"
           // Older cached payloads predate `is_product`: fall back to the mode.
           isProduct={data.is_product ?? true}
-          aboutYou={aboutYou}
           genderOptions={genderOptions}
           onBlocked={handleBlocked}
           qrCodeId={qrCodeId}

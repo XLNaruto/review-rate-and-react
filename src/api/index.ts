@@ -151,27 +151,6 @@ export const getEthnicityOptions = (data: any): EthnicityOption[] => {
     : [];
 };
 
-// The "About you" step settings from the scan-qr payload.
-export type AboutYou = {
-  feedbackType: "customer" | "employee";
-  // Anonymity text shown above the prompts; null → show nothing.
-  notice: string | null;
-  // "Your location and team come from the code you scanned." when a profile
-  // field is preset (Fixed) on the source.
-  fixedNote: string | null;
-};
-
-export const getAboutYou = (data: any): AboutYou => {
-  const a = data?.about_you ?? {};
-  const text = (v: unknown) =>
-    typeof v === "string" && v.trim() ? v.trim() : null;
-  return {
-    feedbackType: a.feedback_type === "employee" ? "employee" : "customer",
-    notice: text(a.notice),
-    fixedNote: text(a.fixed_note),
-  };
-};
-
 // Gender answers from `about_you.options.gender`; falls back to the four
 // values the API accepts when an older payload doesn't carry the list.
 export type GenderOption = { value: string; label: string };
