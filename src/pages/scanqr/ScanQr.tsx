@@ -12,6 +12,8 @@ import { toAbsoluteUrl } from "../../utils/Assets";
 import {
   getEthnicityOptions,
   getGenderOptions,
+  getVisitTypeOptions,
+  getBudgetOptions,
   getProfilePrompts,
   getScanQr,
   getUserInfoModes,
@@ -166,6 +168,8 @@ const ScanQr = () => {
   const userInfoModes = getUserInfoModes(data);
   const ethnicityOptions = getEthnicityOptions(data);
   const genderOptions = getGenderOptions(data);
+  const visitTypeOptions = getVisitTypeOptions(data);
+  const budgetOptions = getBudgetOptions(data);
   const handleSubmitted = () => {
     setSubmitted(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -217,6 +221,8 @@ const ScanQr = () => {
             reactionOnAllQuestions={!!survey?.reaction_on_all_questions}
             isCadence={survey?.question_day != null}
             genderOptions={genderOptions}
+            visitTypeOptions={visitTypeOptions}
+            budgetOptions={budgetOptions}
             onBlocked={handleBlocked}
             userInfoModes={userInfoModes}
             ethnicityOptions={ethnicityOptions}
@@ -248,6 +254,8 @@ const ScanQr = () => {
             onSubmitted={handleSubmitted}
             kind="product_qr"
             genderOptions={genderOptions}
+            visitTypeOptions={visitTypeOptions}
+            budgetOptions={budgetOptions}
             onBlocked={handleBlocked}
             qrCodeId={qrCodeId}
             slug={slug}
@@ -285,6 +293,8 @@ const ScanQr = () => {
           // Older cached payloads predate `is_product`: fall back to the mode.
           isProduct={data.is_product ?? true}
           genderOptions={genderOptions}
+          visitTypeOptions={visitTypeOptions}
+          budgetOptions={budgetOptions}
           onBlocked={handleBlocked}
           qrCodeId={qrCodeId}
           slug={slug}

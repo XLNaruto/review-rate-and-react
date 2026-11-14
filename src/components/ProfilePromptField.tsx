@@ -13,6 +13,8 @@ type ProfilePromptFieldProps = {
   onChange: (optionId: string) => void;
   error?: string;
   idPrefix: string;
+  // Always render chips, whatever the option count.
+  alwaysPills?: boolean;
 };
 
 // One respondent-group question ("Department", "Shift", …): single-choice pills
@@ -21,11 +23,12 @@ type ProfilePromptFieldProps = {
 // sits on the field's wrapper so the form can scroll to it and focus its first
 // control on a validation error.
 const ProfilePromptField = forwardRef<HTMLDivElement, ProfilePromptFieldProps>(
-  ({ prompt, value, onChange, error, idPrefix }, ref) => {
+  ({ prompt, value, onChange, error, idPrefix, alwaysPills = false }, ref) => {
     const required = prompt.mode === "required";
     const labelId = `${idPrefix}-profile-${prompt.field_id}-label`;
     const errorId = `${idPrefix}-profile-${prompt.field_id}-error`;
-    const usePills = prompt.options.length <= MAX_PILL_OPTIONS;
+    const usePills =
+      alwaysPills || prompt.options.length <= MAX_PILL_OPTIONS;
 
     return (
       <div ref={ref} className="mb-5">
@@ -61,6 +64,13 @@ const ProfilePromptField = forwardRef<HTMLDivElement, ProfilePromptFieldProps>(
                     // onChange — use it to clear optional prompts.
                     onClick={() => {
                       if (checked && !required) onChange("");
+                    }}
+                    // Radios pick on Space only; let Enter pick (or clear
+                    // an optional selection) too.
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      onChange(checked && !required ? "" : opt.id);
                     }}
                     className="peer absolute inset-0 m-0 cursor-pointer opacity-0"
                   />

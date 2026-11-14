@@ -4,6 +4,8 @@ import SurveySummary from "./SurveySummary";
 import SelectDropdown from "./SelectDropdown";
 import EthnicityRaceFields from "./EthnicityRaceFields";
 import ProfilePromptField from "./ProfilePromptField";
+import VisitBudgetFields from "./VisitBudgetFields";
+import ContactConsentField from "./ContactConsentField";
 import {
   submitReview,
   buildProfilePayload,
@@ -15,6 +17,7 @@ import {
   REVIEW_PII_REQUIRED,
   REVIEW_PROFILE_OPTION_INVALID,
   REVIEW_PROFILE_REQUIRED,
+  type AboutOption,
   type BlockedState,
   type EthnicityOption,
   type GenderOption,
@@ -49,6 +52,8 @@ type UserInfoModes = {
   ethnicity_mode?: FieldMode | string;
   race_mode?: FieldMode | string;
   description_mode?: FieldMode | string;
+  visit_type_mode?: FieldMode | string;
+  budget_mode?: FieldMode | string;
 };
 
 export type SurveyQuestion = {
@@ -74,6 +79,12 @@ type SurveySubmission = {
   ethnicity?: string;
   ethnicityLabel?: string;
   description: string;
+  // Visit type / household income answers (values) and labels at submit time.
+  visitType?: string;
+  visitTypeLabel?: string;
+  budgetBand?: string;
+  budgetBandLabel?: string;
+  contactConsent?: boolean;
   demographics?: DemographicsValue;
   // Resolved names captured at submit time so the restored summary renders
   // straight from local data — no id→list lookup that could go stale.
@@ -98,6 +109,10 @@ type SurveyFormProps = {
   isCadence?: boolean;
   /** Gender answers (`about_you.options.gender`). */
   genderOptions: GenderOption[];
+  /** Visit type answers (`about_you.options.visit_type`). */
+  visitTypeOptions?: AboutOption[];
+  /** Household income answers (`about_you.options.budget`). */
+  budgetOptions?: AboutOption[];
   /** Switch the page to a state screen after a submit says so. */
   onBlocked?: (state: BlockedState) => void;
   userInfoModes?: UserInfoModes;
@@ -181,6 +196,8 @@ const SurveyForm = ({
   reactionOnAllQuestions = false,
   isCadence = false,
   genderOptions,
+  visitTypeOptions = [],
+  budgetOptions = [],
   onBlocked,
   userInfoModes,
   ethnicityOptions = [],
@@ -202,6 +219,13 @@ const SurveyForm = ({
     : "off";
   const descriptionMode =
     (userInfoModes?.description_mode as FieldMode) ?? "off";
+  // Visit type / household income: only ever "off" or "optional" (never
+  // required); shown only when the API also sent answers to pick from.
+  const showVisitType =
+    userInfoModes?.visit_type_mode === "optional" &&
+    visitTypeOptions.length > 0;
+  const showBudget =
+    userInfoModes?.budget_mode === "optional" && budgetOptions.length > 0;
   // Ethnicity/race reference data — used to resolve ids→names for the payload.
   // Only fetched when the picker is shown (RV-16).
   const { ethnicities, races } = useDemographicsData(raceMode !== "off");
@@ -236,6 +260,16 @@ const SurveyForm = ({
   );
   const [description, setDescription] = useState(
     initialSubmission?.description ?? ""
+  );
+  const [visitType, setVisitType] = useState(
+    initialSubmission?.visitType ?? ""
+  );
+  const [budgetBand, setBudgetBand] = useState(
+    initialSubmission?.budgetBand ?? ""
+  );
+  // Starts unticked; never ticked for the reviewer.
+  const [contactConsent, setContactConsent] = useState(
+    initialSubmission?.contactConsent ?? false
   );
   const [demographics, setDemographics] = useState<DemographicsValue>(
     initialSubmission?.demographics ?? emptyDemographics
@@ -590,6 +624,17 @@ const SurveyForm = ({
 
     const trimmedDescription = description.trim();
     const profilePayload = buildProfilePayload(profilePrompts, about.profile);
+    const trimmedEmail = emailMode !== "off" ? about.email.trim() : "";
+    // Only answers the question still offers; skipped ones are left out.
+    const sendVisitType =
+      showVisitType && visitTypeOptions.some((o) => o.value === visitType)
+        ? visitType
+        : "";
+    const sendBudgetBand =
+      showBudget && budgetOptions.some((o) => o.value === budgetBand)
+        ? budgetBand
+        : "";
+    const sendContactConsent = !!trimmedEmail && contactConsent;
 
     setSubmitting(true);
     const response: any = await submitReview({
@@ -617,6 +662,9 @@ const SurveyForm = ({
       ...(sendEthnicity ? { ethnicity: sendEthnicity } : {}),
       ...(raceAndEthnicity ? { race_and_ethnicity: raceAndEthnicity } : {}),
       ...(profilePayload.length ? { profile: profilePayload } : {}),
+      ...(sendVisitType ? { visit_type: sendVisitType } : {}),
+      ...(sendBudgetBand ? { budget_band: sendBudgetBand } : {}),
+      ...(sendContactConsent ? { contact_consent: true } : {}),
     });
     setSubmitting(false);
 
@@ -641,6 +689,13 @@ const SurveyForm = ({
       ethnicity: sendEthnicity,
       ethnicityLabel: sendEthnicityLabel,
       description,
+      visitType: sendVisitType,
+      visitTypeLabel: visitTypeOptions.find((o) => o.value === sendVisitType)
+        ?.label,
+      budgetBand: sendBudgetBand,
+      budgetBandLabel: budgetOptions.find((o) => o.value === sendBudgetBand)
+        ?.label,
+      contactConsent: sendContactConsent,
       demographics: about.demographics,
       // Persist resolved names too, so the restored summary needs no lookup.
       raceAndEthnicity,
@@ -651,6 +706,27 @@ const SurveyForm = ({
     setSubmitted(true);
     onSubmitted?.();
   };
+
+  // Visit type / household income for the thank-you summary: labels captured
+  // at submit time, else resolved from the live options.
+  const visitBudgetSummary = [
+    {
+      label: "How often do you visit?",
+      value:
+        initialSubmission?.visitTypeLabel ??
+        (showVisitType
+          ? visitTypeOptions.find((o) => o.value === visitType)?.label
+          : undefined),
+    },
+    {
+      label: "Household income",
+      value:
+        initialSubmission?.budgetBandLabel ??
+        (showBudget
+          ? budgetOptions.find((o) => o.value === budgetBand)?.label
+          : undefined),
+    },
+  ].filter((a): a is { label: string; value: string } => !!a.value);
 
   if (submitted) {
     return (
@@ -669,6 +745,7 @@ const SurveyForm = ({
         profileAnswers={[
           ...(initialSubmission?.profileAnswers ??
             buildProfileSummary(profilePrompts, profile)),
+          ...visitBudgetSummary,
           ...((initialSubmission?.ethnicityLabel ?? ethnicityLabel)
             ? [
                 {
@@ -939,10 +1016,19 @@ const SurveyForm = ({
                 onChange={(e) => {
                   clearError("email");
                   setEmail(e.target.value);
+                  // Clearing the email also clears the contact tick.
+                  if (!e.target.value.trim()) setContactConsent(false);
                 }}
                 className={`field-input ${errors.email ? "border-red-500" : ""}`}
               />
               {errorText("email")}
+              {email.trim() && (
+                <ContactConsentField
+                  id="survey-contact-consent"
+                  checked={contactConsent}
+                  onChange={setContactConsent}
+                />
+              )}
             </div>
           )}
 
@@ -986,6 +1072,18 @@ const SurveyForm = ({
               {errorText("age")}
             </div>
           )}
+
+          <VisitBudgetFields
+            idPrefix="survey"
+            showVisitType={showVisitType}
+            showBudget={showBudget}
+            visitTypeOptions={visitTypeOptions}
+            budgetOptions={budgetOptions}
+            visitType={visitType}
+            budgetBand={budgetBand}
+            onVisitTypeChange={setVisitType}
+            onBudgetBandChange={setBudgetBand}
+          />
         </div>
 
       {descriptionMode !== "off" && (
@@ -999,7 +1097,7 @@ const SurveyForm = ({
           <textarea
             ref={descriptionRef}
             id="survey-desc"
-            placeholder="enter description"
+            placeholder="Tell us more (optional). You can name a staff member who helped you."
             maxLength={TEXT_MAX}
             value={description}
             onChange={(e) => {

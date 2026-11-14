@@ -7,6 +7,8 @@ import SelectDropdown from "./SelectDropdown";
 import EthnicityRaceFields from "./EthnicityRaceFields";
 import BusinessServiceField from "./BusinessServiceField";
 import ProfilePromptField from "./ProfilePromptField";
+import VisitBudgetFields from "./VisitBudgetFields";
+import ContactConsentField from "./ContactConsentField";
 import {
   submitReview,
   getScanQrProducts,
@@ -18,6 +20,7 @@ import {
   REVIEW_PII_REQUIRED,
   REVIEW_PROFILE_OPTION_INVALID,
   REVIEW_PROFILE_REQUIRED,
+  type AboutOption,
   type BlockedState,
   type EthnicityOption,
   type GenderOption,
@@ -62,6 +65,8 @@ type UserInfoModes = {
   race_mode?: FieldMode | string;
   business_service_mode?: FieldMode | string;
   description_mode?: FieldMode | string;
+  visit_type_mode?: FieldMode | string;
+  budget_mode?: FieldMode | string;
 };
 
 type FeedbackSubmission = {
@@ -81,6 +86,12 @@ type FeedbackSubmission = {
   ethnicity?: string;
   ethnicityLabel?: string;
   description: string;
+  // Visit type / household income answers (values) and labels at submit time.
+  visitType?: string;
+  visitTypeLabel?: string;
+  budgetBand?: string;
+  budgetBandLabel?: string;
+  contactConsent?: boolean;
   productIds?: string[];
   demographics?: DemographicsValue;
   // Resolved names captured at submit time so the restored summary renders
@@ -115,6 +126,10 @@ type FeedbackFormProps = {
   isProduct?: boolean;
   /** Gender answers (`about_you.options.gender`). */
   genderOptions: GenderOption[];
+  /** Visit type answers (`about_you.options.visit_type`). */
+  visitTypeOptions?: AboutOption[];
+  /** Household income answers (`about_you.options.budget`). */
+  budgetOptions?: AboutOption[];
   /** Switch the page to a state screen after a submit says so. */
   onBlocked?: (state: BlockedState) => void;
 };
@@ -133,6 +148,8 @@ const FeedbackForm = ({
   onRefreshPrompts,
   isProduct = false,
   genderOptions,
+  visitTypeOptions = [],
+  budgetOptions = [],
   onBlocked,
 }: FeedbackFormProps) => {
   // The admin can override the reaction/rating prompt per QR code; an empty or
@@ -160,6 +177,13 @@ const FeedbackForm = ({
     : "off";
   const descriptionMode =
     (userInfoModes?.description_mode as FieldMode) ?? "off";
+  // Visit type / household income: only ever "off" or "optional" (never
+  // required); shown only when the API also sent answers to pick from.
+  const showVisitType =
+    userInfoModes?.visit_type_mode === "optional" &&
+    visitTypeOptions.length > 0;
+  const showBudget =
+    userInfoModes?.budget_mode === "optional" && budgetOptions.length > 0;
   // Live ethnicity/race reference data (with static fallback) — used both to
   // render the fields and to resolve ids→names for the save payload.
   // Only fetched when the picker is shown (RV-16).
@@ -192,6 +216,16 @@ const FeedbackForm = ({
   );
   const [description, setDescription] = useState(
     initialSubmission?.description ?? "",
+  );
+  const [visitType, setVisitType] = useState(
+    initialSubmission?.visitType ?? "",
+  );
+  const [budgetBand, setBudgetBand] = useState(
+    initialSubmission?.budgetBand ?? "",
+  );
+  // Starts unticked; never ticked for the reviewer.
+  const [contactConsent, setContactConsent] = useState(
+    initialSubmission?.contactConsent ?? false,
   );
   const [demographics, setDemographics] = useState<DemographicsValue>(
     initialSubmission?.demographics ?? emptyDemographics,
@@ -557,6 +591,17 @@ const FeedbackForm = ({
 
     const profilePayload = buildProfilePayload(profilePrompts, about.profile);
     const trimmedDescription = description.trim();
+    const trimmedEmail = emailMode !== "off" ? about.email.trim() : "";
+    // Only answers the question still offers; skipped ones are left out.
+    const sendVisitType =
+      showVisitType && visitTypeOptions.some((o) => o.value === visitType)
+        ? visitType
+        : "";
+    const sendBudgetBand =
+      showBudget && budgetOptions.some((o) => o.value === budgetBand)
+        ? budgetBand
+        : "";
+    const sendContactConsent = !!trimmedEmail && contactConsent;
     const response: any = await submitReview({
       kind,
       qr_code_id: qrCodeId,
@@ -585,6 +630,9 @@ const FeedbackForm = ({
         : {}),
       ...(raceAndEthnicity ? { race_and_ethnicity: raceAndEthnicity } : {}),
       ...(profilePayload.length ? { profile: profilePayload } : {}),
+      ...(sendVisitType ? { visit_type: sendVisitType } : {}),
+      ...(sendBudgetBand ? { budget_band: sendBudgetBand } : {}),
+      ...(sendContactConsent ? { contact_consent: true } : {}),
     });
 
     setSubmitting(false);
@@ -622,6 +670,13 @@ const FeedbackForm = ({
       ethnicity: sendEthnicity,
       ethnicityLabel: sendEthnicityLabel,
       description,
+      visitType: sendVisitType,
+      visitTypeLabel: visitTypeOptions.find((o) => o.value === sendVisitType)
+        ?.label,
+      budgetBand: sendBudgetBand,
+      budgetBandLabel: budgetOptions.find((o) => o.value === sendBudgetBand)
+        ?.label,
+      contactConsent: sendContactConsent,
       productIds: selectedProductIds,
       demographics: about.demographics,
       // Persist resolved names too, so the restored summary needs no lookup.
@@ -636,6 +691,27 @@ const FeedbackForm = ({
     setSubmitted(true);
     onSubmitted?.();
   };
+
+  // Visit type / household income for the thank-you summary: labels captured
+  // at submit time, else resolved from the live options.
+  const visitBudgetSummary = [
+    {
+      label: "How often do you visit?",
+      value:
+        initialSubmission?.visitTypeLabel ??
+        (showVisitType
+          ? visitTypeOptions.find((o) => o.value === visitType)?.label
+          : undefined),
+    },
+    {
+      label: "Household income",
+      value:
+        initialSubmission?.budgetBandLabel ??
+        (showBudget
+          ? budgetOptions.find((o) => o.value === budgetBand)?.label
+          : undefined),
+    },
+  ].filter((a): a is { label: string; value: string } => !!a.value);
 
   if (submitted && selectedReaction && selectedRating) {
     return (
@@ -673,6 +749,7 @@ const FeedbackForm = ({
         profileAnswers={[
           ...(initialSubmission?.profileAnswers ??
             buildProfileSummary(profilePrompts, profile)),
+          ...visitBudgetSummary,
           ...((initialSubmission?.ethnicityLabel ?? ethnicityLabel)
             ? [
                 {
@@ -1012,11 +1089,20 @@ const FeedbackForm = ({
             onChange={(e) => {
               clearError("email");
               setEmail(e.target.value);
+              // Clearing the email also clears the contact tick.
+              if (!e.target.value.trim()) setContactConsent(false);
             }}
             className={`field-input ${errors.email ? "border-red-500" : ""}`}
           />
           {errors.email && (
             <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.email}</p>
+          )}
+          {email.trim() && (
+            <ContactConsentField
+              id="contact-consent"
+              checked={contactConsent}
+              onChange={setContactConsent}
+            />
           )}
         </div>
       )}
@@ -1064,6 +1150,18 @@ const FeedbackForm = ({
         </div>
       )}
 
+      <VisitBudgetFields
+        idPrefix="feedback"
+        showVisitType={showVisitType}
+        showBudget={showBudget}
+        visitTypeOptions={visitTypeOptions}
+        budgetOptions={budgetOptions}
+        visitType={visitType}
+        budgetBand={budgetBand}
+        onVisitTypeChange={setVisitType}
+        onBudgetBandChange={setBudgetBand}
+      />
+
       {descriptionMode !== "off" && (
         <div className="mb-5">
           <label
@@ -1075,7 +1173,7 @@ const FeedbackForm = ({
           <textarea
             ref={descriptionRef}
             id="description"
-            placeholder="enter description"
+            placeholder="Tell us more (optional). You can name a staff member who helped you."
             maxLength={TEXT_MAX}
             value={description}
             onChange={(e) => {

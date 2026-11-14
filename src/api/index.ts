@@ -170,6 +170,26 @@ export const getGenderOptions = (data: any): GenderOption[] => {
   return opts.length ? opts : DEFAULT_GENDER_OPTIONS;
 };
 
+// Answers for the optional "How often do you visit?" (`visit_type`) and
+// "Household income" (`budget_band`) questions, from
+// `about_you.options.visit_type` / `about_you.options.budget`. Labels and order
+// come from the API (never hardcoded) so the wording can change without a
+// release; `value` is what's sent on submit.
+export type AboutOption = { value: string; label: string };
+
+const getAboutOptions = (data: any, key: string): AboutOption[] => {
+  const list = data?.about_you?.options?.[key];
+  return Array.isArray(list)
+    ? (list as AboutOption[]).filter((o) => o?.value && o?.label)
+    : [];
+};
+
+export const getVisitTypeOptions = (data: any): AboutOption[] =>
+  getAboutOptions(data, "visit_type");
+
+export const getBudgetOptions = (data: any): AboutOption[] =>
+  getAboutOptions(data, "budget");
+
 // The per-prompt modes. Most live under `user_info_modes`; ethnicity_mode and
 // race_mode may also come top-level on the scan response, so fall back to those.
 export const getUserInfoModes = (data: any) => ({
@@ -284,6 +304,12 @@ export type QrReviewPayload = {
   race_and_ethnicity?: RaceAndEthnicityPayload;
   // Answered respondent-group questions (omit unanswered optional ones).
   profile?: ProfileAnswer[];
+  // Optional "How often do you visit?" answer value (visit_type_mode).
+  visit_type?: string | null;
+  // Optional "Household income" answer value (budget_mode).
+  budget_band?: string | null;
+  // The reviewer ticked "OK to contact me about this feedback" (needs an email).
+  contact_consent?: boolean;
 };
 
 // per-question answer inside a survey submission
@@ -318,6 +344,12 @@ export type SurveyReviewPayload = {
   race_and_ethnicity?: RaceAndEthnicityPayload;
   // Answered respondent-group questions (omit unanswered optional ones).
   profile?: ProfileAnswer[];
+  // Optional "How often do you visit?" answer value (visit_type_mode).
+  visit_type?: string | null;
+  // Optional "Household income" answer value (budget_mode).
+  budget_band?: string | null;
+  // The reviewer ticked "OK to contact me about this feedback" (needs an email).
+  contact_consent?: boolean;
   answers: SurveyAnswer[];
 };
 
