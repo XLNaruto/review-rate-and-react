@@ -8,6 +8,7 @@ import EthnicityRaceFields from "./EthnicityRaceFields";
 import BusinessServiceField from "./BusinessServiceField";
 import ProfilePromptField from "./ProfilePromptField";
 import VisitBudgetFields from "./VisitBudgetFields";
+import { CHOOSE_OPTION_ERROR, visitBudgetMode } from "../utils/visitBudget";
 import ContactConsentField from "./ContactConsentField";
 import {
   submitReview,
@@ -177,13 +178,15 @@ const FeedbackForm = ({
     : "off";
   const descriptionMode =
     (userInfoModes?.description_mode as FieldMode) ?? "off";
-  // Visit type / household income: only ever "off" or "optional" (never
-  // required); shown only when the API also sent answers to pick from.
-  const showVisitType =
-    userInfoModes?.visit_type_mode === "optional" &&
-    visitTypeOptions.length > 0;
-  const showBudget =
-    userInfoModes?.budget_mode === "optional" && budgetOptions.length > 0;
+  // Visit type / household income: "off", "optional" or "required" — final
+  // values from the API. Shown only when the API also sent answers to pick from.
+  const visitTypeMode = visitBudgetMode(
+    userInfoModes?.visit_type_mode,
+    visitTypeOptions,
+  );
+  const budgetMode = visitBudgetMode(userInfoModes?.budget_mode, budgetOptions);
+  const showVisitType = visitTypeMode !== "off";
+  const showBudget = budgetMode !== "off";
   // Live ethnicity/race reference data (with static fallback) — used both to
   // render the fields and to resolve ids→names for the save payload.
   // Only fetched when the picker is shown (RV-16).
@@ -248,8 +251,10 @@ const FeedbackForm = ({
   const ethnicityRef = useRef<HTMLDivElement>(null);
   const raceRef = useRef<HTMLDivElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  const consentRef = useRef<HTMLDivElement>(null);
+  const consentRef = useRef<HTMLInputElement>(null);
   const profileRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const visitTypeRef = useRef<HTMLDivElement>(null);
+  const budgetRef = useRef<HTMLDivElement>(null);
   const reactionRowRef = useRef<HTMLDivElement>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -435,6 +440,17 @@ const FeedbackForm = ({
       );
       if (raceErr) e.race = raceErr.message;
     }
+    // "Prefer not to say" is one of the options, so it counts as an answer.
+    if (
+      visitTypeMode === "required" &&
+      !visitTypeOptions.some((o) => o.value === visitType)
+    )
+      e.visitType = CHOOSE_OPTION_ERROR;
+    if (
+      budgetMode === "required" &&
+      !budgetOptions.some((o) => o.value === budgetBand)
+    )
+      e.budgetBand = CHOOSE_OPTION_ERROR;
   };
 
   const focusFirstError = (errs: Record<string, string>) => {
@@ -449,6 +465,8 @@ const FeedbackForm = ({
       "postalCode",
       "ethnicity",
       "race",
+      "visitType",
+      "budgetBand",
       "description",
       "consent",
     ];
@@ -473,7 +491,11 @@ const FeedbackForm = ({
       ? profileRefs.current[first.slice("profile:".length)]
       : first === "ethnicity"
         ? ethnicityRef.current
-        : null;
+        : first === "visitType"
+          ? visitTypeRef.current
+          : first === "budgetBand"
+            ? budgetRef.current
+            : null;
     const el = (
       profileEl
         ? (profileEl.querySelector<HTMLElement>(
@@ -549,10 +571,15 @@ const FeedbackForm = ({
       ethnicity: ethnicityMode !== "off",
       race: raceMode !== "off",
       description: descriptionMode !== "off",
+      visitType: showVisitType,
+      budgetBand: showBudget,
     };
     if (!key || !shown[key]) return false;
     const errs = {
-      [key]: response?.data?.message ?? "This field is required.",
+      [key]:
+        key === "visitType" || key === "budgetBand"
+          ? CHOOSE_OPTION_ERROR
+          : (response?.data?.message ?? "This field is required."),
     };
     setErrors(errs);
     focusFirstError(errs);
@@ -1152,14 +1179,24 @@ const FeedbackForm = ({
 
       <VisitBudgetFields
         idPrefix="feedback"
-        showVisitType={showVisitType}
-        showBudget={showBudget}
+        visitTypeMode={visitTypeMode}
+        budgetMode={budgetMode}
         visitTypeOptions={visitTypeOptions}
         budgetOptions={budgetOptions}
         visitType={visitType}
         budgetBand={budgetBand}
-        onVisitTypeChange={setVisitType}
-        onBudgetBandChange={setBudgetBand}
+        onVisitTypeChange={(v) => {
+          clearError("visitType");
+          setVisitType(v);
+        }}
+        onBudgetBandChange={(v) => {
+          clearError("budgetBand");
+          setBudgetBand(v);
+        }}
+        visitTypeError={errors.visitType}
+        budgetError={errors.budgetBand}
+        visitTypeRef={visitTypeRef}
+        budgetRef={budgetRef}
       />
 
       {descriptionMode !== "off" && (
@@ -1191,15 +1228,14 @@ const FeedbackForm = ({
         </div>
       )}
       <div className="mb-5">
-        <div
-          ref={consentRef}
-          onClick={() => {
-            clearError("consent");
-            setConsent((v) => !v);
-          }}
+        {/* One <label> wraps the box and the text, so a click anywhere on
+            the row toggles it exactly once. */}
+        <label
+          htmlFor="consent"
           className="flex items-start gap-3 cursor-pointer rounded-2xl p-1"
         >
           <input
+            ref={consentRef}
             id="consent"
             type="checkbox"
             checked={consent}
@@ -1207,20 +1243,16 @@ const FeedbackForm = ({
               clearError("consent");
               setConsent(e.target.checked);
             }}
-            onClick={(e) => e.stopPropagation()}
             className={`mt-0.5 h-5 w-5 shrink-0 accent-black cursor-pointer rounded ${
               errors.consent ? "border border-red-500" : ""
             }`}
           />
-          <label
-            htmlFor="consent"
-            className="text-[13px] leading-snug text-placeholder cursor-pointer"
-          >
+          <span className="text-[13px] leading-snug text-placeholder">
             I acknowledge the sharing of my personal information and consent to
             its collection, use, and processing for the intended purposes.
             <span className="text-red-500 ml-0.5">*</span>
-          </label>
-        </div>
+          </span>
+        </label>
         {errors.consent && (
           <p role="alert" className="mt-1.5 text-xs text-red-500">{errors.consent}</p>
         )}

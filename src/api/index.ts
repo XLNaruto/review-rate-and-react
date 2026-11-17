@@ -362,7 +362,7 @@ export const REVIEW_PROFILE_REQUIRED = "REVIEW_PROFILE_REQUIRED";
 export const REVIEW_PROFILE_OPTION_INVALID = "REVIEW_PROFILE_OPTION_INVALID";
 
 // 400 when a required "about you" prompt (email, age, gender, postal code,
-// ethnicity, race) is missing. `details.field` names the body field.
+// ethnicity, race, visit type, budget band) is missing. `details.field` names the body field.
 export const REVIEW_PII_REQUIRED = "REVIEW_PII_REQUIRED";
 
 // Body field → the forms' error key, for showing a REVIEW_PII_REQUIRED inline.
@@ -374,6 +374,8 @@ export const PII_FIELD_ERROR_KEYS: Record<string, string> = {
   ethnicity: "ethnicity",
   race_and_ethnicity: "race",
   description: "description",
+  visit_type: "visitType",
+  budget_band: "budgetBand",
 };
 
 // 400 when description_mode is required and the description is empty.
